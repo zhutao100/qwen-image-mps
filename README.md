@@ -6,6 +6,7 @@ Generate images from text prompts using the Hugging Face Diffusers pipeline for 
 - **Auto device selection**: prefers MPS (Apple Silicon), then CUDA, else CPU
 - **Simple CLI**: provide a prompt and number of steps
 - **Timestamped outputs**: avoids overwriting previous generations
+- **Fast mode**: 8-step generation using Lightning LoRA (auto-downloads if needed)
 
 ### Example
 
@@ -39,11 +40,19 @@ python qwen-image-mps.py
 
 # Custom prompt and fewer steps
 python qwen-image-mps.py -p "A serene alpine lake at sunrise, ultra detailed, cinematic" -s 30
+
+# Fast mode with Lightning LoRA (8 steps)
+python qwen-image-mps.py -f -p "A magical forest with glowing mushrooms"
+
+# Custom seed for reproducible generation
+python qwen-image-mps.py --seed 42 -p "A vintage coffee shop"
 ```
 
 ### Arguments
 - `-p, --prompt` (str): Prompt text for image generation.
 - `-s, --steps` (int): Number of inference steps (default: 50).
+- `-f, --fast`: Enable fast mode using Lightning LoRA for 8-step generation.
+- `--seed` (int): Random seed for reproducible generation (default: 195).
 
 ## What the script does
 - Loads `Qwen/Qwen-Image` via `diffusers.DiffusionPipeline`
@@ -54,10 +63,20 @@ python qwen-image-mps.py -p "A serene alpine lake at sunrise, ultra detailed, ci
 - Uses a light positive conditioning suffix for quality
 - Generates at a 16:9 resolution (default `1664x928`)
 - Saves the output as `example-YYYYMMDD-HHMMSS.png`
+- Prints the full path of the saved image
+
+### Fast Mode (Lightning LoRA)
+When using the `-f/--fast` flag, the script:
+- Automatically downloads the Lightning LoRA from Hugging Face if not present
+- Merges the LoRA weights into the model for accelerated generation
+- Uses fixed 8 inference steps with CFG scale 1.0
+- Provides ~6x speedup compared to the default 50 steps
+
+The fast implementation is based on [Qwen-Image-Lightning](https://github.com/ModelTC/Qwen-Image-Lightning).
 
 ## Notes and tweaks
 - **Aspect ratio / resolution**: The script currently uses the `16:9` entry from an `aspect_ratios` map. You can change the selection in the code where `width, height` is set.
-- **Determinism**: A fixed seed is used. On MPS, the random generator runs on CPU for improved stability.
+- **Determinism**: Use the `--seed` parameter to control the random generator for reproducible results. On MPS, the random generator runs on CPU for improved stability.
 - **Performance**: If you hit memory or speed issues, try reducing `--steps`.
 
 ## Troubleshooting

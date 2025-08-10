@@ -146,4 +146,5 @@ logs/
 *.tmp
 *.temp
 
+*.safetensors
 

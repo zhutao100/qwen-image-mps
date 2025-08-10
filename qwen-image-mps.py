@@ -19,9 +19,83 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--steps",
         type=int,
         default=50,
-        help="Number of inference steps for image generation.",
+        help="Number of inference steps for normal generation.",
+    )
+    parser.add_argument(
+        "-f",
+        "--fast",
+        action="store_true",
+        help="Use Lightning LoRA for fast generation.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=195,
+        help="Random seed for reproducible generation.",
     )
     return parser
+
+
+def download_lora_if_needed(lora_path):
+    """Download the Lightning LoRA from Hugging Face if it doesn't exist."""
+    import os
+    if not os.path.exists(lora_path):
+        print(f"Lightning LoRA not found at {lora_path}, downloading from Hugging Face...")
+        import urllib.request
+        url = "https://huggingface.co/lightx2v/Qwen-Image-Lightning/resolve/main/Qwen-Image-Lightning-8steps-V1.0.safetensors"
+        try:
+            urllib.request.urlretrieve(url, lora_path)
+            print(f"Successfully downloaded Lightning LoRA to {lora_path}")
+            return True
+        except Exception as e:
+            print(f"Failed to download Lightning LoRA: {e}")
+            return False
+    return True
+
+
+def merge_lora_from_safetensors(pipe, lora_path):
+    """Merge LoRA weights from safetensors file into the pipeline's transformer."""
+    import torch
+    import safetensors.torch
+    
+    lora_state_dict = safetensors.torch.load_file(lora_path)
+    
+    transformer = pipe.transformer
+    merged_count = 0
+    
+    for name, param in transformer.named_parameters():
+        # Remove .weight suffix if present to get base parameter name
+        base_name = name.replace(".weight", "") if name.endswith(".weight") else name
+        
+        # Construct LoRA keys directly (no transformer prefix needed)
+        lora_down_key = f"{base_name}.lora_down.weight"
+        lora_up_key = f"{base_name}.lora_up.weight"
+        lora_alpha_key = f"{base_name}.alpha"
+        
+        if lora_down_key in lora_state_dict and lora_up_key in lora_state_dict:
+            lora_down = lora_state_dict[lora_down_key]
+            lora_up = lora_state_dict[lora_up_key]
+            
+            # Get alpha value if it exists, otherwise use rank
+            if lora_alpha_key in lora_state_dict:
+                lora_alpha = float(lora_state_dict[lora_alpha_key])
+            else:
+                lora_alpha = lora_down.shape[0]  # Use rank as default
+            
+            rank = lora_down.shape[0]
+            scaling_factor = lora_alpha / rank
+            
+            # Convert to float32 for computation
+            lora_up = lora_up.float()
+            lora_down = lora_down.float()
+            
+            # Apply LoRA: weight = weight + scaling_factor * (up @ down)
+            delta_W = scaling_factor * torch.matmul(lora_up, lora_down)
+            param.data = (param.data + delta_W.to(param.device)).type_as(param.data)
+            merged_count += 1
+    
+    print(f"Merged {merged_count} LoRA weights into the model")
+    return pipe
 
 
 def main() -> None:
@@ -31,6 +105,7 @@ def main() -> None:
     # Defer heavy imports until after parsing so `--help` is fast
     import torch
     from diffusers import DiffusionPipeline
+    import os
 
     model_name = "Qwen/Qwen-Image"
 
@@ -50,6 +125,25 @@ def main() -> None:
 
     pipe = DiffusionPipeline.from_pretrained(model_name, torch_dtype=torch_dtype)
     pipe = pipe.to(device)
+
+    # Apply Lightning LoRA if fast mode is enabled
+    if args.fast:
+        lora_path = "Qwen-Image-Lightning-8steps-V1.0.safetensors"
+        if download_lora_if_needed(lora_path):
+            print("Loading Lightning LoRA for fast generation...")
+            pipe = merge_lora_from_safetensors(pipe, lora_path)
+            # Use fixed 8 steps for Lightning mode
+            num_steps = 8
+            cfg_scale = 1.0
+            print(f"Fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
+        else:
+            print(f"Warning: Could not load Lightning LoRA")
+            print("Falling back to normal generation...")
+            num_steps = args.steps
+            cfg_scale = 4.0
+    else:
+        num_steps = args.steps
+        cfg_scale = 4.0
 
     positive_magic = {
         "en": "Ultra HD, 4K, cinematic composition.",
@@ -76,15 +170,19 @@ def main() -> None:
         negative_prompt=negative_prompt,
         width=width,
         height=height,
-        num_inference_steps=args.steps,
-        true_cfg_scale=4.0,
-        generator=torch.Generator(device=generator_device).manual_seed(195),
+        num_inference_steps=num_steps,
+        true_cfg_scale=cfg_scale,
+        generator=torch.Generator(device=generator_device).manual_seed(args.seed),
     ).images[0]
 
     # Save with timestamp to avoid overwriting previous generations
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     output_filename = f"example-{timestamp}.png"
     image.save(output_filename)
+    
+    # Print full path of saved image
+    full_path = os.path.abspath(output_filename)
+    print(f"\nImage saved to: {full_path}")
 
 
 if __name__ == "__main__":
