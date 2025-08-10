@@ -147,4 +147,5 @@ logs/
 *.temp
 
 *.safetensors
+image-*.png
 
