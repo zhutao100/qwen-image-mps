@@ -58,7 +58,7 @@ python qwen-image-mps.py --seed 42 -p "A vintage coffee shop"
 - Loads `Qwen/Qwen-Image` via `diffusers.DiffusionPipeline`
 - Selects device and dtype:
   - MPS: `bfloat16`
-  - CUDA: `float16`
+  - CUDA: `bfloat16`
   - CPU: `float32`
 - Uses a light positive conditioning suffix for quality
 - Generates at a 16:9 resolution (default `1664x928`)

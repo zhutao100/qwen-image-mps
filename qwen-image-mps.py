@@ -117,7 +117,7 @@ def main() -> None:
     elif torch.cuda.is_available():
         print("Using CUDA")
         device = "cuda"
-        torch_dtype = torch.float16
+        torch_dtype = torch.bfloat16
     else:
         print("Using CPU")
         device = "cpu"
