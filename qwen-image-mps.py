@@ -177,7 +177,7 @@ def main() -> None:
 
     # Save with timestamp to avoid overwriting previous generations
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    output_filename = f"example-{timestamp}.png"
+    output_filename = f"image-{timestamp}.png"
     image.save(output_filename)
     
     # Print full path of saved image
