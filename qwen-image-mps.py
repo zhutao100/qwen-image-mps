@@ -33,6 +33,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=195,
         help="Random seed for reproducible generation.",
     )
+    parser.add_argument(
+        "--num-images",
+        type=int,
+        default=1,
+        help="Number of images to generate.",
+    )
     return parser
 
 
@@ -165,24 +171,37 @@ def main() -> None:
     width, height = aspect_ratios["16:9"]
     generator_device = "cpu" if device == "mps" else device
 
-    image = pipe(
-        prompt=prompt + positive_magic["en"],
-        negative_prompt=negative_prompt,
-        width=width,
-        height=height,
-        num_inference_steps=num_steps,
-        true_cfg_scale=cfg_scale,
-        generator=torch.Generator(device=generator_device).manual_seed(args.seed),
-    ).images[0]
+    # Ensure we generate at least one image
+    num_images = max(1, int(args.num_images))
 
-    # Save with timestamp to avoid overwriting previous generations
+    # Shared timestamp for this generation batch
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    output_filename = f"image-{timestamp}.png"
-    image.save(output_filename)
-    
-    # Print full path of saved image
-    full_path = os.path.abspath(output_filename)
-    print(f"\nImage saved to: {full_path}")
+
+    saved_paths = []
+    for image_index in range(num_images):
+        image = pipe(
+            prompt=prompt + positive_magic["en"],
+            negative_prompt=negative_prompt,
+            width=width,
+            height=height,
+            num_inference_steps=num_steps,
+            true_cfg_scale=cfg_scale,
+            generator=torch.Generator(device=generator_device).manual_seed(args.seed + image_index),
+        ).images[0]
+
+        # Save with timestamp to avoid overwriting previous generations
+        suffix = f"-{image_index+1}" if num_images > 1 else ""
+        output_filename = f"image-{timestamp}{suffix}.png"
+        image.save(output_filename)
+        saved_paths.append(os.path.abspath(output_filename))
+
+    # Print full path(s) of saved image(s)
+    if len(saved_paths) == 1:
+        print(f"\nImage saved to: {saved_paths[0]}")
+    else:
+        print("\nImages saved:")
+        for path in saved_paths:
+            print(f"- {path}")
 
 
 if __name__ == "__main__":

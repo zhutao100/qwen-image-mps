@@ -7,6 +7,7 @@ Generate images from text prompts using the Hugging Face Diffusers pipeline for 
 - **Simple CLI**: provide a prompt and number of steps
 - **Timestamped outputs**: avoids overwriting previous generations
 - **Fast mode**: 8-step generation using Lightning LoRA (auto-downloads if needed)
+ - **Multi-image generation**: generate multiple images in one run with `--num-images`
 
 ### Example
 
@@ -46,6 +47,9 @@ python qwen-image-mps.py -f -p "A magical forest with glowing mushrooms"
 
 # Custom seed for reproducible generation
 python qwen-image-mps.py --seed 42 -p "A vintage coffee shop"
+
+# Generate multiple images (incrementing seed per image)
+python qwen-image-mps.py -p "Retro sci-fi city skyline at night" --num-images 3 --seed 100
 ```
 
 ### Arguments
@@ -53,6 +57,7 @@ python qwen-image-mps.py --seed 42 -p "A vintage coffee shop"
 - `-s, --steps` (int): Number of inference steps (default: 50).
 - `-f, --fast`: Enable fast mode using Lightning LoRA for 8-step generation.
 - `--seed` (int): Random seed for reproducible generation (default: 195).
+ - `--num-images` (int): Number of images to generate (default: 1).
 
 ## What the script does
 - Loads `Qwen/Qwen-Image` via `diffusers.DiffusionPipeline`
@@ -62,7 +67,8 @@ python qwen-image-mps.py --seed 42 -p "A vintage coffee shop"
   - CPU: `float32`
 - Uses a light positive conditioning suffix for quality
 - Generates at a 16:9 resolution (default `1664x928`)
-- Saves the output as `example-YYYYMMDD-HHMMSS.png`
+- Saves the output as `image-YYYYMMDD-HHMMSS.png` for a single image,
+  or `image-YYYYMMDD-HHMMSS-1.png`, `image-YYYYMMDD-HHMMSS-2.png`, ... when using `--num-images`
 - Prints the full path of the saved image
 
 ### Fast Mode (Lightning LoRA)
