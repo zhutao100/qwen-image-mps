@@ -51,6 +51,7 @@ jobs:
       with:
         password: ${{ secrets.PYPI_API_TOKEN }}
         skip-existing: true
+        attestations: false
 
   publish-to-testpypi:
     name: Publish to TestPyPI
@@ -74,3 +75,4 @@ jobs:
         repository-url: https://test.pypi.org/legacy/
         password: ${{ secrets.TEST_PYPI_API_TOKEN }}
         skip-existing: true
+        attestations: false
