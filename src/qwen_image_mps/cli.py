@@ -42,25 +42,22 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def download_lora_if_needed(lora_path):
-    """Download the Lightning LoRA from Hugging Face if it doesn't exist."""
-    import os
+def get_lora_path():
+    """Get the Lightning LoRA from Hugging Face cache."""
+    from huggingface_hub import hf_hub_download
 
-    if not os.path.exists(lora_path):
-        print(
-            f"Lightning LoRA not found at {lora_path}, downloading from Hugging Face..."
+    try:
+        # This will download to HF cache or return cached path
+        lora_path = hf_hub_download(
+            repo_id="lightx2v/Qwen-Image-Lightning",
+            filename="Qwen-Image-Lightning-8steps-V1.0.safetensors",
+            repo_type="model",
         )
-        import urllib.request
-
-        url = "https://huggingface.co/lightx2v/Qwen-Image-Lightning/resolve/main/Qwen-Image-Lightning-8steps-V1.0.safetensors"
-        try:
-            urllib.request.urlretrieve(url, lora_path)
-            print(f"Successfully downloaded Lightning LoRA to {lora_path}")
-            return True
-        except Exception as e:
-            print(f"Failed to download Lightning LoRA: {e}")
-            return False
-    return True
+        print(f"Lightning LoRA loaded from: {lora_path}")
+        return lora_path
+    except Exception as e:
+        print(f"Failed to load Lightning LoRA: {e}")
+        return None
 
 
 def merge_lora_from_safetensors(pipe, lora_path):
@@ -139,9 +136,9 @@ def main() -> None:
 
     # Apply Lightning LoRA if fast mode is enabled
     if args.fast:
-        lora_path = "Qwen-Image-Lightning-8steps-V1.0.safetensors"
-        if download_lora_if_needed(lora_path):
-            print("Loading Lightning LoRA for fast generation...")
+        print("Loading Lightning LoRA for fast generation...")
+        lora_path = get_lora_path()
+        if lora_path:
             pipe = merge_lora_from_safetensors(pipe, lora_path)
             # Use fixed 8 steps for Lightning mode
             num_steps = 8
