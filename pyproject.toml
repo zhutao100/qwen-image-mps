@@ -35,6 +35,14 @@ classifiers = [
     "Topic :: Multimedia :: Graphics",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pre-commit",
+    "black",
+    "isort",
+    "ruff",
+]
+
 [project.urls]
 Homepage = "https://github.com/ivanfioravanti/qwen-image-mps"
 Repository = "https://github.com/ivanfioravanti/qwen-image-mps"
@@ -45,3 +53,27 @@ qwen-image-mps = "qwen_image_mps.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/qwen_image_mps"]
+
+[tool.black]
+line-length = 88
+target-version = ['py39', 'py310', 'py311', 'py312']
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "UP",   # pyupgrade
+]
+ignore = [
+    "E501",  # line too long, handled by black
+]
