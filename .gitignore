@@ -137,6 +137,7 @@ cython_debug/
 .vscode/
 .idea/
 .history
+.claude/
 
 # Logs
 logs/

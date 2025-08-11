@@ -5,6 +5,7 @@
 #   "transformers",
 #   "accelerate",
 #   "safetensors",
+#   "huggingface-hub",
 # ]
 # ///
 
