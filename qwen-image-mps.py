@@ -16,7 +16,24 @@ uv run https://raw.githubusercontent.com/ivanfioravanti/qwen-image-mps/refs/head
 For package installation, use: pip install qwen-image-mps
 """
 
-from src.qwen_image_mps.cli import main
+import os
+import sys
+
+# Try to import from installed package first
+try:
+    from qwen_image_mps.cli import main
+except ImportError:
+    # Fall back to local development import
+    try:
+        # Add the directory containing this script to the path
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        src_path = os.path.join(script_dir, "src")
+        if os.path.exists(src_path):
+            sys.path.insert(0, src_path)
+        from qwen_image_mps.cli import main
+    except ImportError:
+        # If we still can't import, try from src subdirectory
+        from src.qwen_image_mps.cli import main
 
 if __name__ == "__main__":
     main()
