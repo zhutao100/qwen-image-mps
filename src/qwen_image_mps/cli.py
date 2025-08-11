@@ -30,8 +30,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--seed",
         type=int,
-        default=195,
-        help="Random seed for reproducible generation.",
+        default=42,
+        help=(
+            "Random seed for reproducible generation (default: 42). If not explicitly "
+            "provided and generating multiple images, a new random seed is used for each image."
+        ),
     )
     parser.add_argument(
         "--num-images",
@@ -111,6 +114,8 @@ def main() -> None:
 
     # Defer heavy imports until after parsing so `--help` is fast
     import os
+    import secrets
+    import sys
 
     import torch
     from diffusers import DiffusionPipeline
@@ -178,7 +183,21 @@ def main() -> None:
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
 
     saved_paths = []
+
+    # Detect whether the user explicitly provided --seed on the command line
+    argv = sys.argv[1:]
+    seed_provided = ("--seed" in argv) or any(arg.startswith("--seed=") for arg in argv)
     for image_index in range(num_images):
+        if seed_provided:
+            # Deterministic: increment seed per image starting from the provided seed
+            per_image_seed = int(args.seed) + image_index
+        elif num_images > 1:
+            # Non-deterministic for multi-image when no seed explicitly provided
+            # Use 63-bit to keep it positive and well within torch's expected range
+            per_image_seed = secrets.randbits(63)
+        else:
+            # Single image without explicit seed: use default (42)
+            per_image_seed = int(args.seed)
         image = pipe(
             prompt=prompt,
             negative_prompt=negative_prompt,
@@ -187,7 +206,7 @@ def main() -> None:
             num_inference_steps=num_steps,
             true_cfg_scale=cfg_scale,
             generator=torch.Generator(device=generator_device).manual_seed(
-                args.seed + image_index
+                per_image_seed
             ),
         ).images[0]
 

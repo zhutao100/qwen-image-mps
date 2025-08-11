@@ -76,8 +76,11 @@ qwen-image-mps -f -p "A magical forest with glowing mushrooms"
 # Custom seed for reproducible generation
 qwen-image-mps --seed 42 -p "A vintage coffee shop"
 
-# Generate multiple images (incrementing seed per image)
+# Generate multiple images (incrementing seed per image when seed is provided)
 qwen-image-mps -p "Retro sci-fi city skyline at night" --num-images 3 --seed 100
+
+# Generate multiple images with a fresh random seed for each image (omit --seed)
+qwen-image-mps -p "Retro sci-fi city skyline at night" --num-images 3
 ```
 
 If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-image-mps.py` in the examples above.
@@ -86,7 +89,9 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
 - `-p, --prompt` (str): Prompt text for image generation.
 - `-s, --steps` (int): Number of inference steps (default: 50).
 - `-f, --fast`: Enable fast mode using Lightning LoRA for 8-step generation.
-- `--seed` (int): Random seed for reproducible generation (default: 195).
+- `--seed` (int): Random seed for reproducible generation (default: 42). If not
+  explicitly provided and generating multiple images, a new random seed is used
+  for each image.
  - `--num-images` (int): Number of images to generate (default: 1).
 
 ## What the script does
