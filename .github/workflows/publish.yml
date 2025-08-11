@@ -38,6 +38,8 @@ jobs:
     environment:
       name: pypi
       url: https://pypi.org/project/qwen-image-mps/
+    permissions:
+      id-token: write  # IMPORTANT: mandatory for trusted publishing
 
     steps:
     - name: Download all the dists
@@ -48,10 +50,6 @@ jobs:
 
     - name: Publish to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
-      with:
-        password: ${{ secrets.PYPI_API_TOKEN }}
-        skip-existing: true
-        attestations: false
 
   publish-to-testpypi:
     name: Publish to TestPyPI
@@ -61,6 +59,8 @@ jobs:
     environment:
       name: testpypi
       url: https://test.pypi.org/project/qwen-image-mps/
+    permissions:
+      id-token: write
 
     steps:
     - name: Download all the dists
@@ -73,6 +73,3 @@ jobs:
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         repository-url: https://test.pypi.org/legacy/
-        password: ${{ secrets.TEST_PYPI_API_TOKEN }}
-        skip-existing: true
-        attestations: false
