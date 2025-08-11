@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[project]
+name = "qwen-image-mps"
+version = "0.1.0"
+description = "Generate images with Qwen-Image on Apple Silicon (MPS) and other devices"
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "Ivan Fioravanti", email = "ivanfioravanti@users.noreply.github.com" }
+]
+requires-python = ">=3.9"
+dependencies = [
+    "torch>=2.0.0",
+    "diffusers @ git+https://github.com/huggingface/diffusers",
+    "transformers>=4.35.0",
+    "accelerate>=0.25.0",
+    "safetensors>=0.4.0",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Multimedia :: Graphics",
+]
+
+[project.urls]
+Homepage = "https://github.com/ivanfioravanti/qwen-image-mps"
+Repository = "https://github.com/ivanfioravanti/qwen-image-mps"
+Issues = "https://github.com/ivanfioravanti/qwen-image-mps/issues"
+
+[project.scripts]
+qwen-image-mps = "qwen_image_mps.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/qwen_image_mps"]
