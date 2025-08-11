@@ -1,3 +1,13 @@
+# /// script
+# dependencies = [
+#   "torch",
+#   "diffusers @ git+https://github.com/huggingface/diffusers",
+#   "transformers",
+#   "accelerate",
+#   "safetensors",
+# ]
+# ///
+
 import argparse
 from datetime import datetime
 
