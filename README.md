@@ -26,7 +26,7 @@ Or download the file first like this:
 curl -O https://raw.githubusercontent.com/ivanfioravanti/qwen-image-mps/refs/heads/main/qwen-image-mps.py
 uv run qwen-image-mps.py --help
 ```
-The first time you run this it will install dependencies and download the model from Hugging Face.
+The first time you run this it will install dependencies and download the 57.7GB model from Hugging Face and store it in your `~/.cache/huggingface/hub/models--Qwen--Qwen-Image` directory.
 
 ## Usage
 
