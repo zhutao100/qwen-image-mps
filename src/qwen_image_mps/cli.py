@@ -153,10 +153,6 @@ def main() -> None:
         num_steps = args.steps
         cfg_scale = 4.0
 
-    positive_magic = {
-        "en": "Ultra HD, 4K, cinematic composition.",
-    }
-
     prompt = args.prompt
     negative_prompt = (
         " "  # using an empty string if you do not have specific concept to remove
@@ -184,7 +180,7 @@ def main() -> None:
     saved_paths = []
     for image_index in range(num_images):
         image = pipe(
-            prompt=prompt + positive_magic["en"],
+            prompt=prompt,
             negative_prompt=negative_prompt,
             width=width,
             height=height,
