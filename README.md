@@ -113,7 +113,7 @@ When using the `-f/--fast` flag, the tool:
 - Uses fixed 8 inference steps with CFG scale 1.0
 - Provides ~6x speedup compared to the default 50 steps
 
-The fast implementation is based on [Qwen-Image-Lightning](https://github.com/ModelTC/Qwen-Image-Lightning).
+The fast implementation is based on [Qwen-Image-Lightning](https://github.com/ModelTC/Qwen-Image-Lightning). The Lightning LoRA models are available on HuggingFace at [lightx2v/Qwen-Image-Lightning](https://huggingface.co/lightx2v/Qwen-Image-Lightning).
 
 ## Notes and tweaks
 - **Aspect ratio / resolution**: The script currently uses the `16:9` entry from an `aspect_ratios` map. You can change the selection in the code where `width, height` is set.
