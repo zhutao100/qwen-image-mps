@@ -6,7 +6,8 @@ Generate images from text prompts using the Hugging Face Diffusers pipeline for 
 - **Auto device selection**: prefers MPS (Apple Silicon), then CUDA, else CPU
 - **Simple CLI**: provide a prompt and number of steps
 - **Timestamped outputs**: avoids overwriting previous generations
-- **Fast mode**: 8-step generation using Lightning LoRA (auto-downloads if needed)
+- **Fast mode**: 8-step generation using 8steps Lightning LoRA (auto-downloads if needed)
+- **Ultra Fast mode**: 4-step generation using 4steps Lightning LoRA (auto-downloads if needed)
  - **Multi-image generation**: generate multiple images in one run with `--num-images`
 
 ### Example
