@@ -25,7 +25,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "-f",
         "--fast",
         action="store_true",
-        help="Use Lightning LoRA for fast generation.",
+        help="Use Lightning LoRA v1.1 for fast generation (8 steps).",
+    )
+    parser.add_argument(
+        "--ultra-fast",
+        action="store_true",
+        help="Use Lightning LoRA v1.0 for ultra-fast generation (4 steps).",
     )
     parser.add_argument(
         "--seed",
@@ -45,21 +50,29 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def get_lora_path():
+def get_lora_path(ultra_fast=False):
     """Get the Lightning LoRA from Hugging Face cache."""
     from huggingface_hub import hf_hub_download
 
+    if ultra_fast:
+        filename = "Qwen-Image-Lightning-4steps-V1.0-bf16.safetensors"
+        version = "v1.0 (4-steps)"
+    else:
+        filename = "Qwen-Image-Lightning-8steps-V1.1.safetensors"
+        version = "v1.1 (8-steps)"
+
     try:
-        # This will download to HF cache or return cached path
+        # Force re-download by setting force_download=True to avoid cache issues
         lora_path = hf_hub_download(
             repo_id="lightx2v/Qwen-Image-Lightning",
-            filename="Qwen-Image-Lightning-8steps-V1.0.safetensors",
+            filename=filename,
             repo_type="model",
+            force_download=True,  # Force re-download to avoid cache issues
         )
-        print(f"Lightning LoRA loaded from: {lora_path}")
+        print(f"Lightning LoRA {version} loaded from: {lora_path}")
         return lora_path
     except Exception as e:
-        print(f"Failed to load Lightning LoRA: {e}")
+        print(f"Failed to load Lightning LoRA {version}: {e}")
         return None
 
 
@@ -139,10 +152,24 @@ def main() -> None:
     pipe = DiffusionPipeline.from_pretrained(model_name, torch_dtype=torch_dtype)
     pipe = pipe.to(device)
 
-    # Apply Lightning LoRA if fast mode is enabled
-    if args.fast:
-        print("Loading Lightning LoRA for fast generation...")
-        lora_path = get_lora_path()
+    # Apply Lightning LoRA if fast or ultra-fast mode is enabled
+    if args.ultra_fast:
+        print("Loading Lightning LoRA v1.0 for ultra-fast generation...")
+        lora_path = get_lora_path(ultra_fast=True)
+        if lora_path:
+            pipe = merge_lora_from_safetensors(pipe, lora_path)
+            # Use fixed 4 steps for Ultra Lightning mode
+            num_steps = 4
+            cfg_scale = 1.0
+            print(f"Ultra-fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
+        else:
+            print("Warning: Could not load Lightning LoRA v1.0")
+            print("Falling back to normal generation...")
+            num_steps = args.steps
+            cfg_scale = 4.0
+    elif args.fast:
+        print("Loading Lightning LoRA v1.1 for fast generation...")
+        lora_path = get_lora_path(ultra_fast=False)
         if lora_path:
             pipe = merge_lora_from_safetensors(pipe, lora_path)
             # Use fixed 8 steps for Lightning mode
@@ -150,7 +177,7 @@ def main() -> None:
             cfg_scale = 1.0
             print(f"Fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
         else:
-            print("Warning: Could not load Lightning LoRA")
+            print("Warning: Could not load Lightning LoRA v1.1")
             print("Falling back to normal generation...")
             num_steps = args.steps
             cfg_scale = 4.0
