@@ -51,7 +51,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def get_lora_path(ultra_fast=False):
-    """Get the Lightning LoRA from Hugging Face cache."""
+    """Get the Lightning LoRA from Hugging Face Hub with a silent cache freshness check.
+
+    The function will:
+    - Look up any locally cached file for the target filename.
+    - Then fetch the latest from the Hub (without forcing) which will reuse cache
+      if up-to-date, or download a newer snapshot if the remote changed.
+    - Return the final resolved local path.
+    """
     from huggingface_hub import hf_hub_download
 
     if ultra_fast:
@@ -62,15 +69,30 @@ def get_lora_path(ultra_fast=False):
         version = "v1.1 (8-steps)"
 
     try:
-        # Force re-download by setting force_download=True to avoid cache issues
-        lora_path = hf_hub_download(
+        cached_path = None
+        try:
+            cached_path = hf_hub_download(
+                repo_id="lightx2v/Qwen-Image-Lightning",
+                filename=filename,
+                repo_type="model",
+                local_files_only=True,
+            )
+        except Exception:
+            cached_path = None
+
+        # Resolve latest from Hub; will reuse cache if fresh, or download newer
+        latest_path = hf_hub_download(
             repo_id="lightx2v/Qwen-Image-Lightning",
             filename=filename,
             repo_type="model",
-            force_download=True,  # Force re-download to avoid cache issues
         )
-        print(f"Lightning LoRA {version} loaded from: {lora_path}")
-        return lora_path
+
+        if cached_path and latest_path != cached_path:
+            # A newer snapshot was fetched; keep output quiet per request
+            pass
+
+        print(f"Lightning LoRA {version} loaded from: {latest_path}")
+        return latest_path
     except Exception as e:
         print(f"Failed to load Lightning LoRA {version}: {e}")
         return None
