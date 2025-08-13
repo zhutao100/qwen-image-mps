@@ -74,6 +74,9 @@ qwen-image-mps -p "A serene alpine lake at sunrise, ultra detailed, cinematic" -
 # Fast mode with Lightning LoRA (8 steps)
 qwen-image-mps -f -p "A magical forest with glowing mushrooms"
 
+# Ultra-fast mode with Lightning LoRA v1.0 (4 steps)
+qwen-image-mps --ultra-fast -p "A futuristic cityscape with neon lights"
+
 # Custom seed for reproducible generation
 qwen-image-mps --seed 42 -p "A vintage coffee shop"
 
@@ -90,6 +93,7 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
 - `-p, --prompt` (str): Prompt text for image generation.
 - `-s, --steps` (int): Number of inference steps (default: 50).
 - `-f, --fast`: Enable fast mode using Lightning LoRA for 8-step generation.
+- `--ultra-fast`: Enable ultra-fast mode using Lightning LoRA v1.0 for 4-step generation.
 - `--seed` (int): Random seed for reproducible generation (default: 42). If not
   explicitly provided and generating multiple images, a new random seed is used
   for each image.
@@ -107,12 +111,22 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
   or `image-YYYYMMDD-HHMMSS-1.png`, `image-YYYYMMDD-HHMMSS-2.png`, ... when using `--num-images`
 - Prints the full path of the saved image
 
-### Fast Mode (Lightning LoRA)
+### Fast Mode & Ultra-Fast Mode (Lightning LoRA)
+
+#### Fast Mode (`-f/--fast`)
 When using the `-f/--fast` flag, the tool:
-- Automatically downloads the Lightning LoRA from Hugging Face (cached in `~/.cache/huggingface/hub/`)
+- Automatically downloads the 8-step Lightning LoRA from Hugging Face (cached in `~/.cache/huggingface/hub/`)
 - Merges the LoRA weights into the model for accelerated generation
 - Uses fixed 8 inference steps with CFG scale 1.0
 - Provides ~6x speedup compared to the default 50 steps
+
+#### Ultra-Fast Mode (`--ultra-fast`)
+When using the `--ultra-fast` flag, the tool:
+- Automatically downloads the 4-step Lightning LoRA v1.0 from Hugging Face (cached in `~/.cache/huggingface/hub/`)
+- Merges the LoRA weights into the model for maximum speed generation
+- Uses fixed 4 inference steps with CFG scale 1.0
+- Provides ~12x speedup compared to the default 50 steps
+- Ideal for rapid prototyping and iteration
 
 The fast implementation is based on [Qwen-Image-Lightning](https://github.com/ModelTC/Qwen-Image-Lightning). The Lightning LoRA models are available on HuggingFace at [lightx2v/Qwen-Image-Lightning](https://huggingface.co/lightx2v/Qwen-Image-Lightning).
 
