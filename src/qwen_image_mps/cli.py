@@ -1,10 +1,25 @@
 import argparse
+import os
+import secrets
+import sys
 from datetime import datetime
 
+import safetensors.torch
+import torch
+from diffusers import DiffusionPipeline
+from huggingface_hub import hf_hub_download
+from PIL import Image
 
-def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Generate an image with Qwen-Image",
+try:
+    from diffusers import QwenImageEditPipeline
+except ImportError:
+    QwenImageEditPipeline = None
+
+
+def build_generate_parser(subparsers) -> argparse.ArgumentParser:
+    parser = subparsers.add_parser(
+        "generate",
+        help="Generate a new image from text prompt",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
@@ -59,7 +74,6 @@ def get_lora_path(ultra_fast=False):
       if up-to-date, or download a newer snapshot if the remote changed.
     - Return the final resolved local path.
     """
-    from huggingface_hub import hf_hub_download
 
     if ultra_fast:
         filename = "Qwen-Image-Lightning-4steps-V1.0-bf16.safetensors"
@@ -100,8 +114,6 @@ def get_lora_path(ultra_fast=False):
 
 def merge_lora_from_safetensors(pipe, lora_path):
     """Merge LoRA weights from safetensors file into the pipeline's transformer."""
-    import safetensors.torch
-    import torch
 
     lora_state_dict = safetensors.torch.load_file(lora_path)
 
@@ -143,33 +155,71 @@ def merge_lora_from_safetensors(pipe, lora_path):
     return pipe
 
 
-def main() -> None:
-    parser = build_arg_parser()
-    args = parser.parse_args()
+def build_edit_parser(subparsers) -> argparse.ArgumentParser:
+    parser = subparsers.add_parser(
+        "edit",
+        help="Edit an existing image using text instructions",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "-i",
+        "--input",
+        type=str,
+        required=True,
+        help="Path to the input image to edit.",
+    )
+    parser.add_argument(
+        "-p",
+        "--prompt",
+        type=str,
+        required=True,
+        help="Editing instructions (e.g., 'Change the sky to sunset colors').",
+    )
+    parser.add_argument(
+        "-s",
+        "--steps",
+        type=int,
+        default=50,
+        help="Number of inference steps.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for reproducible generation.",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        type=str,
+        default=None,
+        help="Output filename (default: edited-<timestamp>.png).",
+    )
+    return parser
 
-    # Defer heavy imports until after parsing so `--help` is fast
-    import os
-    import secrets
-    import sys
 
-    import torch
-    from diffusers import DiffusionPipeline
-
-    model_name = "Qwen/Qwen-Image"
-
-    # Select device and dtype correctly
+def get_device_and_dtype():
+    """Get the optimal device and dtype for the current system."""
     if torch.backends.mps.is_available():
         print("Using MPS")
-        device = "mps"
-        torch_dtype = torch.bfloat16  # more stable on MPS
+        return "mps", torch.bfloat16
     elif torch.cuda.is_available():
         print("Using CUDA")
-        device = "cuda"
-        torch_dtype = torch.bfloat16
+        return "cuda", torch.bfloat16
     else:
         print("Using CPU")
-        device = "cpu"
-        torch_dtype = torch.float32
+        return "cpu", torch.float32
+
+
+def create_generator(device, seed):
+    """Create a torch.Generator with the appropriate device."""
+    generator_device = "cpu" if device == "mps" else device
+    return torch.Generator(device=generator_device).manual_seed(seed)
+
+
+def generate_image(args) -> None:
+    model_name = "Qwen/Qwen-Image"
+    device, torch_dtype = get_device_and_dtype()
 
     pipe = DiffusionPipeline.from_pretrained(model_name, torch_dtype=torch_dtype)
     pipe = pipe.to(device)
@@ -223,7 +273,6 @@ def main() -> None:
     }
 
     width, height = aspect_ratios["16:9"]
-    generator_device = "cpu" if device == "mps" else device
 
     # Ensure we generate at least one image
     num_images = max(1, int(args.num_images))
@@ -247,6 +296,8 @@ def main() -> None:
         else:
             # Single image without explicit seed: use default (42)
             per_image_seed = int(args.seed)
+
+        generator = create_generator(device, per_image_seed)
         image = pipe(
             prompt=prompt,
             negative_prompt=negative_prompt,
@@ -254,9 +305,7 @@ def main() -> None:
             height=height,
             num_inference_steps=num_steps,
             true_cfg_scale=cfg_scale,
-            generator=torch.Generator(device=generator_device).manual_seed(
-                per_image_seed
-            ),
+            generator=generator,
         ).images[0]
 
         # Save with timestamp to avoid overwriting previous generations
@@ -272,6 +321,101 @@ def main() -> None:
         print("\nImages saved:")
         for path in saved_paths:
             print(f"- {path}")
+
+
+def edit_image(args) -> None:
+    if QwenImageEditPipeline is None:
+        print("\n⚠️  QwenImageEditPipeline not found in your diffusers version.")
+        print(
+            "Please update diffusers: uv pip install git+https://github.com/huggingface/diffusers@main\n"
+        )
+        return
+
+    device, torch_dtype = get_device_and_dtype()
+
+    # Load the image editing pipeline
+    print("Loading Qwen-Image-Edit model for image editing...")
+    pipeline = QwenImageEditPipeline.from_pretrained(
+        "Qwen/Qwen-Image-Edit", torch_dtype=torch_dtype
+    )
+    pipeline = pipeline.to(device)
+    pipeline.set_progress_bar_config(disable=None)
+
+    # Load input image
+    try:
+        image = Image.open(args.input).convert("RGB")
+        print(f"Loaded input image: {args.input} ({image.size[0]}x{image.size[1]})")
+    except Exception as e:
+        print(f"Error loading input image: {e}")
+        return
+
+    # Set up generation parameters
+    generator = create_generator(device, args.seed)
+
+    # Perform image editing
+    print(f"Editing image with prompt: {args.prompt}")
+    print(f"Using {args.steps} inference steps...")
+
+    # QwenImageEditPipeline for image editing
+    with torch.inference_mode():
+        output = pipeline(
+            image=image,
+            prompt=args.prompt,
+            negative_prompt=" ",
+            num_inference_steps=args.steps,
+            generator=generator,
+            guidance_scale=4.0,
+        )
+        edited_image = output.images[0]
+
+    # Save the edited image
+    if args.output:
+        output_filename = args.output
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        output_filename = f"edited-{timestamp}.png"
+
+    edited_image.save(output_filename)
+    print(f"\nEdited image saved to: {os.path.abspath(output_filename)}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Qwen-Image MPS - Generate and edit images with Qwen models on Apple Silicon",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+
+    # Create subparsers for different commands
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # Add generate and edit subcommands
+    build_generate_parser(subparsers)
+    build_edit_parser(subparsers)
+
+    args = parser.parse_args()
+
+    # Handle the command
+    if args.command == "generate":
+        generate_image(args)
+    elif args.command == "edit":
+        edit_image(args)
+    else:
+        # Default to generate for backward compatibility if no subcommand
+        # This allows the old style invocation to still work
+        import sys
+
+        if len(sys.argv) > 1 and sys.argv[1] not in [
+            "generate",
+            "edit",
+            "-h",
+            "--help",
+        ]:
+            # Parse as generate command for backward compatibility
+            sys.argv.insert(1, "generate")
+            args = parser.parse_args()
+            generate_image(args)
+        else:
+            parser.print_help()
 
 
 if __name__ == "__main__":

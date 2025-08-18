@@ -2,11 +2,22 @@
 
 __version__ = "0.1.0"
 
-from .cli import build_arg_parser, get_lora_path, main, merge_lora_from_safetensors
+from .cli import (
+    build_edit_parser,
+    build_generate_parser,
+    edit_image,
+    generate_image,
+    get_lora_path,
+    main,
+    merge_lora_from_safetensors,
+)
 
 __all__ = [
     "main",
-    "build_arg_parser",
+    "build_generate_parser",
+    "build_edit_parser",
+    "generate_image",
+    "edit_image",
     "get_lora_path",
     "merge_lora_from_safetensors",
 ]

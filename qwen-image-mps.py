@@ -1,11 +1,13 @@
 # /// script
 # dependencies = [
-#   "torch",
+#   "torch>=2.0.0",
+#   "torchvision>=0.15.0",
 #   "diffusers @ git+https://github.com/huggingface/diffusers",
-#   "transformers",
-#   "accelerate",
-#   "safetensors",
-#   "huggingface-hub",
+#   "transformers>=4.35.0",
+#   "accelerate>=0.25.0",
+#   "safetensors>=0.4.0",
+#   "huggingface-hub>=0.20.0",
+#   "Pillow>=9.0.0",
 # ]
 # ///
 

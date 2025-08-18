@@ -1,10 +1,12 @@
 ## Qwen Image (MPS/CUDA/CPU)
 
-Generate images from text prompts using the Hugging Face Diffusers pipeline for `Qwen/Qwen-Image`, with automatic device selection for Apple Silicon (MPS), NVIDIA CUDA, or CPU fallback.
+Generate and edit images from text prompts using the Hugging Face Diffusers pipeline for `Qwen/Qwen-Image`, with automatic device selection for Apple Silicon (MPS), NVIDIA CUDA, or CPU fallback.
 
 ### Features
 - **Auto device selection**: prefers MPS (Apple Silicon), then CUDA, else CPU
 - **Simple CLI**: provide a prompt and number of steps
+- **Image generation**: create new images from text prompts
+- **Image editing**: modify existing images using text instructions
 - **Timestamped outputs**: avoids overwriting previous generations
 - **Fast mode**: 8-step generation using Lightning LoRA (auto-downloads if needed)
  - **Multi-image generation**: generate multiple images in one run with `--num-images`
@@ -27,6 +29,8 @@ pip install qwen-image-mps
 Then run it directly from the command line:
 ```bash
 qwen-image-mps --help
+qwen-image-mps generate --help  # For image generation
+qwen-image-mps edit --help      # For image editing
 ```
 
 ### Option 2: Direct script execution with uv
@@ -55,46 +59,79 @@ pip install -e .
 
 ## Usage
 
-After installation, use the `qwen-image-mps` command:
+After installation, use the `qwen-image-mps` command with either `generate` or `edit` subcommands:
 
 ```bash
 qwen-image-mps --help
+qwen-image-mps generate --help  # For image generation
+qwen-image-mps edit --help      # For image editing
 ```
 
-Examples:
+### Image Generation Examples:
 
 ```bash
 # Default prompt and steps
-qwen-image-mps
+qwen-image-mps generate
 
 # Custom prompt and fewer steps
-qwen-image-mps -p "A serene alpine lake at sunrise, ultra detailed, cinematic" -s 30
+qwen-image-mps generate -p "A serene alpine lake at sunrise, ultra detailed, cinematic" -s 30
 
 # Fast mode with Lightning LoRA (8 steps)
-qwen-image-mps -f -p "A magical forest with glowing mushrooms"
+qwen-image-mps generate -f -p "A magical forest with glowing mushrooms"
+
+# Ultra-fast mode with Lightning LoRA (4 steps)
+qwen-image-mps generate --ultra-fast -p "A magical forest with glowing mushrooms"
 
 # Custom seed for reproducible generation
-qwen-image-mps --seed 42 -p "A vintage coffee shop"
+qwen-image-mps generate --seed 42 -p "A vintage coffee shop"
 
 # Generate multiple images (incrementing seed per image when seed is provided)
-qwen-image-mps -p "Retro sci-fi city skyline at night" --num-images 3 --seed 100
+qwen-image-mps generate -p "Retro sci-fi city skyline at night" --num-images 3 --seed 100
 
 # Generate multiple images with a fresh random seed for each image (omit --seed)
-qwen-image-mps -p "Retro sci-fi city skyline at night" --num-images 3
+qwen-image-mps generate -p "Retro sci-fi city skyline at night" --num-images 3
+```
+
+### Image Editing Examples:
+
+```bash
+# Basic image editing
+qwen-image-mps edit -i input.jpg -p "Change the sky to sunset colors"
+
+# Edit with custom steps
+qwen-image-mps edit -i photo.png -p "Add snow to the mountains" -s 30
+
+# Edit with custom output filename
+qwen-image-mps edit -i landscape.jpg -p "Make it autumn colors" -o autumn_landscape.png
+
+# Edit with custom seed and steps
+qwen-image-mps edit -i portrait.jpg -p "Change hair color to blonde" --seed 123 -s 30
 ```
 
 If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-image-mps.py` in the examples above.
 
-### Arguments
+### Command Arguments
+
+#### Generate Command Arguments
 - `-p, --prompt` (str): Prompt text for image generation.
 - `-s, --steps` (int): Number of inference steps (default: 50).
 - `-f, --fast`: Enable fast mode using Lightning LoRA for 8-step generation.
+- `--ultra-fast`: Enable ultra-fast mode using Lightning LoRA for 4-step generation.
 - `--seed` (int): Random seed for reproducible generation (default: 42). If not
   explicitly provided and generating multiple images, a new random seed is used
   for each image.
- - `--num-images` (int): Number of images to generate (default: 1).
+- `--num-images` (int): Number of images to generate (default: 1).
+
+#### Edit Command Arguments
+- `-i, --input` (str): Path to the input image to edit (required).
+- `-p, --prompt` (str): Editing instructions (required).
+- `-s, --steps` (int): Number of inference steps (default: 50).
+- `--seed` (int): Random seed for reproducible generation (default: 42).
+- `-o, --output` (str): Output filename (default: edited-<timestamp>.png).
 
 ## What the script does
+
+### Image Generation
 - Loads `Qwen/Qwen-Image` via `diffusers.DiffusionPipeline`
 - Selects device and dtype:
   - MPS: `bfloat16`
@@ -106,14 +143,28 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
   or `image-YYYYMMDD-HHMMSS-1.png`, `image-YYYYMMDD-HHMMSS-2.png`, ... when using `--num-images`
 - Prints the full path of the saved image
 
+### Image Editing
+- Loads `Qwen/Qwen-Image-Edit` via `QwenImageEditPipeline` for image editing
+- Takes an existing image and editing instructions as input
+- Applies transformations while preserving the original structure
+- Saves the edited image as `edited-YYYYMMDD-HHMMSS.png` or custom filename
+- Prints the full path of the edited image
+
 ### Fast Mode (Lightning LoRA)
-When using the `-f/--fast` flag, the tool:
-- Automatically downloads the Lightning LoRA from Hugging Face (cached in `~/.cache/huggingface/hub/`)
+When using the `-f/--fast` flag (8-step generation):
+- Automatically downloads the Lightning LoRA v1.1 from Hugging Face (cached in `~/.cache/huggingface/hub/`)
 - Merges the LoRA weights into the model for accelerated generation
 - Uses fixed 8 inference steps with CFG scale 1.0
 - Provides ~6x speedup compared to the default 50 steps
 
+When using the `--ultra-fast` flag (4-step generation):
+- Automatically downloads the Lightning LoRA v1.0 from Hugging Face (cached in `~/.cache/huggingface/hub/`)
+- Uses fixed 4 inference steps with CFG scale 1.0
+- Provides ~12x speedup compared to the default 50 steps
+
 The fast implementation is based on [Qwen-Image-Lightning](https://github.com/ModelTC/Qwen-Image-Lightning).
+
+**Note:** Fast modes are currently only available for image generation, not editing.
 
 ## Notes and tweaks
 - **Aspect ratio / resolution**: The script currently uses the `16:9` entry from an `aspect_ratios` map. You can change the selection in the code where `width, height` is set.
