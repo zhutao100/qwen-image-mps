@@ -9,6 +9,7 @@ Generate and edit images from text prompts using the Hugging Face Diffusers pipe
 - **Image editing**: modify existing images using text instructions
 - **Timestamped outputs**: avoids overwriting previous generations
 - **Fast mode**: 8-step generation using Lightning LoRA (auto-downloads if needed)
+- **Ultra-fast mode**: 4-step generation using Lightning LoRA (auto-downloads if needed)
  - **Multi-image generation**: generate multiple images in one run with `--num-images`
 
 ### Example
@@ -82,6 +83,7 @@ qwen-image-mps generate -f -p "A magical forest with glowing mushrooms"
 # Ultra-fast mode with Lightning LoRA (4 steps)
 qwen-image-mps generate --ultra-fast -p "A magical forest with glowing mushrooms"
 
+
 # Custom seed for reproducible generation
 qwen-image-mps generate --seed 42 -p "A vintage coffee shop"
 
@@ -116,7 +118,7 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
 - `-p, --prompt` (str): Prompt text for image generation.
 - `-s, --steps` (int): Number of inference steps (default: 50).
 - `-f, --fast`: Enable fast mode using Lightning LoRA for 8-step generation.
-- `--ultra-fast`: Enable ultra-fast mode using Lightning LoRA for 4-step generation.
+- `--ultra-fast`: Enable ultra-fast mode using Lightning LoRA v1.0 for 4-step generation.
 - `--seed` (int): Random seed for reproducible generation (default: 42). If not
   explicitly provided and generating multiple images, a new random seed is used
   for each image.
@@ -150,19 +152,24 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
 - Saves the edited image as `edited-YYYYMMDD-HHMMSS.png` or custom filename
 - Prints the full path of the edited image
 
-### Fast Mode (Lightning LoRA)
-When using the `-f/--fast` flag (8-step generation):
+### Fast Mode & Ultra-Fast Mode (Lightning LoRA)
+
+#### Fast Mode (`-f/--fast`)
+When using the `-f/--fast` flag, the tool:
 - Automatically downloads the Lightning LoRA v1.1 from Hugging Face (cached in `~/.cache/huggingface/hub/`)
 - Merges the LoRA weights into the model for accelerated generation
 - Uses fixed 8 inference steps with CFG scale 1.0
 - Provides ~6x speedup compared to the default 50 steps
 
-When using the `--ultra-fast` flag (4-step generation):
+#### Ultra-Fast Mode (`--ultra-fast`)
+When using the `--ultra-fast` flag, the tool:
 - Automatically downloads the Lightning LoRA v1.0 from Hugging Face (cached in `~/.cache/huggingface/hub/`)
+- Merges the LoRA weights into the model for maximum speed generation
 - Uses fixed 4 inference steps with CFG scale 1.0
 - Provides ~12x speedup compared to the default 50 steps
+- Ideal for rapid prototyping and iteration
 
-The fast implementation is based on [Qwen-Image-Lightning](https://github.com/ModelTC/Qwen-Image-Lightning).
+The fast implementation is based on [Qwen-Image-Lightning](https://github.com/ModelTC/Qwen-Image-Lightning). The Lightning LoRA models are available on HuggingFace at [lightx2v/Qwen-Image-Lightning](https://huggingface.co/lightx2v/Qwen-Image-Lightning).
 
 **Note:** Fast modes are currently only available for image generation, not editing.
 
