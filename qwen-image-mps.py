@@ -13,7 +13,7 @@
 
 """
 This script wrapper allows direct execution via:
-uv run https://raw.githubusercontent.com/ivanfioravanti/qwen-image-mps/refs/heads/main/qwen-image-mps.py
+uv run https://raw.githubusercontent.com/ivanfioravanti/qwen-image-mps/main/qwen-image-mps.py
 
 For package installation, use: pip install qwen-image-mps
 """
@@ -49,7 +49,7 @@ def import_from_url(url, module_name):
 
 if __name__ == "__main__":
     # Import cli.py from GitHub
-    cli_url = "https://raw.githubusercontent.com/ivanfioravanti/qwen-image-mps/refs/heads/main/src/qwen_image_mps/cli.py"
+    cli_url = "https://raw.githubusercontent.com/ivanfioravanti/qwen-image-mps/main/src/qwen_image_mps/cli.py"
     cli = import_from_url(cli_url, "qwen_image_mps_cli")
 
     # Run the main function
