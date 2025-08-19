@@ -18,7 +18,7 @@ requires-python = ">=3.9"
 dependencies = [
     "torch>=2.0.0",
     "torchvision>=0.15.0",
-    "diffusers @ git+https://github.com/huggingface/diffusers",
+    "diffusers>=0.35.0",
     "transformers>=4.35.0",
     "accelerate>=0.25.0",
     "safetensors>=0.4.0",
@@ -34,6 +34,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Multimedia :: Graphics",
 ]
@@ -58,7 +59,7 @@ packages = ["src/qwen_image_mps"]
 
 [tool.black]
 line-length = 88
-target-version = ['py39', 'py310', 'py311', 'py312']
+target-version = ['py39', 'py310', 'py311', 'py312','py313']
 
 [tool.isort]
 profile = "black"
