@@ -4,17 +4,6 @@ import secrets
 import sys
 from datetime import datetime
 
-import safetensors.torch
-import torch
-from diffusers import DiffusionPipeline
-from huggingface_hub import hf_hub_download
-from PIL import Image
-
-try:
-    from diffusers import QwenImageEditPipeline
-except ImportError:
-    QwenImageEditPipeline = None
-
 
 def build_generate_parser(subparsers) -> argparse.ArgumentParser:
     parser = subparsers.add_parser(
@@ -43,6 +32,7 @@ def build_generate_parser(subparsers) -> argparse.ArgumentParser:
         help="Use Lightning LoRA v1.1 for fast generation (8 steps).",
     )
     parser.add_argument(
+        "-uf",
         "--ultra-fast",
         action="store_true",
         help="Use Lightning LoRA v1.0 for ultra-fast generation (4 steps).",
@@ -66,6 +56,7 @@ def build_generate_parser(subparsers) -> argparse.ArgumentParser:
 
 
 def get_lora_path(ultra_fast=False):
+    from huggingface_hub import hf_hub_download
     """Get the Lightning LoRA from Hugging Face Hub with a silent cache freshness check.
 
     The function will:
@@ -114,6 +105,8 @@ def get_lora_path(ultra_fast=False):
 
 def merge_lora_from_safetensors(pipe, lora_path):
     """Merge LoRA weights from safetensors file into the pipeline's transformer."""
+    import safetensors.torch
+    import torch
 
     lora_state_dict = safetensors.torch.load_file(lora_path)
 
@@ -200,6 +193,8 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
 
 def get_device_and_dtype():
     """Get the optimal device and dtype for the current system."""
+    import torch
+    
     if torch.backends.mps.is_available():
         print("Using MPS")
         return "mps", torch.bfloat16
@@ -213,11 +208,15 @@ def get_device_and_dtype():
 
 def create_generator(device, seed):
     """Create a torch.Generator with the appropriate device."""
+    import torch
+    
     generator_device = "cpu" if device == "mps" else device
     return torch.Generator(device=generator_device).manual_seed(seed)
 
 
 def generate_image(args) -> None:
+    from diffusers import DiffusionPipeline
+    
     model_name = "Qwen/Qwen-Image"
     device, torch_dtype = get_device_and_dtype()
 
@@ -324,13 +323,10 @@ def generate_image(args) -> None:
 
 
 def edit_image(args) -> None:
-    if QwenImageEditPipeline is None:
-        print("\n⚠️  QwenImageEditPipeline not found in your diffusers version.")
-        print(
-            "Please update diffusers: uv pip install git+https://github.com/huggingface/diffusers@main\n"
-        )
-        return
-
+    import torch
+    from PIL import Image
+    from diffusers import QwenImageEditPipeline
+    
     device, torch_dtype = get_device_and_dtype()
 
     # Load the image editing pipeline
@@ -380,9 +376,17 @@ def edit_image(args) -> None:
 
 
 def main() -> None:
+    from . import __version__
+
     parser = argparse.ArgumentParser(
         description="Qwen-Image MPS - Generate and edit images with Qwen models on Apple Silicon",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"qwen-image-mps {__version__}",
     )
 
     # Create subparsers for different commands
