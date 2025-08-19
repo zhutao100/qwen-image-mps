@@ -16,7 +16,7 @@ Generate and edit images from text prompts using the Hugging Face Diffusers pipe
 
 Example result you can create with this project:
 
-![Example image](example.png)
+![Example image](https://raw.githubusercontent.com/ivanfioravanti/qwen-image-mps/main/example.png)
 
 ## Installation
 
