@@ -57,6 +57,7 @@ def build_generate_parser(subparsers) -> argparse.ArgumentParser:
 
 def get_lora_path(ultra_fast=False):
     from huggingface_hub import hf_hub_download
+
     """Get the Lightning LoRA from Hugging Face Hub with a silent cache freshness check.
 
     The function will:
@@ -194,7 +195,7 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
 def get_device_and_dtype():
     """Get the optimal device and dtype for the current system."""
     import torch
-    
+
     if torch.backends.mps.is_available():
         print("Using MPS")
         return "mps", torch.bfloat16
@@ -209,14 +210,14 @@ def get_device_and_dtype():
 def create_generator(device, seed):
     """Create a torch.Generator with the appropriate device."""
     import torch
-    
+
     generator_device = "cpu" if device == "mps" else device
     return torch.Generator(device=generator_device).manual_seed(seed)
 
 
 def generate_image(args) -> None:
     from diffusers import DiffusionPipeline
-    
+
     model_name = "Qwen/Qwen-Image"
     device, torch_dtype = get_device_and_dtype()
 
@@ -324,9 +325,9 @@ def generate_image(args) -> None:
 
 def edit_image(args) -> None:
     import torch
-    from PIL import Image
     from diffusers import QwenImageEditPipeline
-    
+    from PIL import Image
+
     device, torch_dtype = get_device_and_dtype()
 
     # Load the image editing pipeline
@@ -382,7 +383,7 @@ def main() -> None:
         description="Qwen-Image MPS - Generate and edit images with Qwen models on Apple Silicon",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    
+
     parser.add_argument(
         "--version",
         action="version",
