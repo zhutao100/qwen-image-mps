@@ -52,6 +52,12 @@ def build_generate_parser(subparsers) -> argparse.ArgumentParser:
         default=1,
         help="Number of images to generate.",
     )
+    parser.add_argument(
+        "--lora",
+        type=str,
+        default=None,
+        help="Hugging Face model URL or repo ID for additional LoRA to load (e.g., 'flymy-ai/qwen-image-anime-irl-lora' or full HF URL).",
+    )
     return parser
 
 
@@ -104,6 +110,66 @@ def get_lora_path(ultra_fast=False):
         return None
 
 
+def get_custom_lora_path(lora_spec):
+    """Get a custom LoRA from Hugging Face Hub.
+
+    Args:
+        lora_spec: Either a full HF URL or a repo ID (e.g., 'flymy-ai/qwen-image-anime-irl-lora')
+
+    Returns:
+        Path to the downloaded LoRA file, or None if failed
+    """
+    from huggingface_hub import hf_hub_download
+    import re
+
+    # Extract repo_id from URL if it's a full HF URL
+    if lora_spec.startswith("https://huggingface.co/"):
+        # Extract repo_id from URL like https://huggingface.co/flymy-ai/qwen-image-anime-irl-lora
+        match = re.match(r"https://huggingface\.co/([^/]+/[^/]+)", lora_spec)
+        if match:
+            repo_id = match.group(1)
+        else:
+            print(f"Invalid Hugging Face URL format: {lora_spec}")
+            return None
+    else:
+        # Assume it's already a repo ID
+        repo_id = lora_spec
+
+    try:
+        # First, try to list files to find the LoRA safetensors file
+        from huggingface_hub import list_repo_files
+
+        print(f"Looking for LoRA files in {repo_id}...")
+        files = list_repo_files(repo_id, repo_type="model")
+
+        # Find safetensors files that might be LoRAs
+        safetensors_files = [f for f in files if f.endswith(".safetensors")]
+
+        if not safetensors_files:
+            print(f"No safetensors files found in {repo_id}")
+            return None
+
+        # Prefer files with 'lora' in the name, otherwise take the first one
+        lora_files = [f for f in safetensors_files if "lora" in f.lower()]
+        filename = lora_files[0] if lora_files else safetensors_files[0]
+
+        print(f"Downloading LoRA file: {filename}")
+
+        # Download the LoRA file
+        lora_path = hf_hub_download(
+            repo_id=repo_id,
+            filename=filename,
+            repo_type="model",
+        )
+
+        print(f"Custom LoRA loaded from: {lora_path}")
+        return lora_path
+
+    except Exception as e:
+        print(f"Failed to load custom LoRA from {repo_id}: {e}")
+        return None
+
+
 def merge_lora_from_safetensors(pipe, lora_path):
     """Merge LoRA weights from safetensors file into the pipeline's transformer."""
     import safetensors.torch
@@ -114,36 +180,132 @@ def merge_lora_from_safetensors(pipe, lora_path):
     transformer = pipe.transformer
     merged_count = 0
 
-    for name, param in transformer.named_parameters():
-        # Remove .weight suffix if present to get base parameter name
-        base_name = name.replace(".weight", "") if name.endswith(".weight") else name
+    lora_keys = list(lora_state_dict.keys())
+    
+    # Detect LoRA format
+    uses_dot_lora_format = any(
+        ".lora.down" in key or ".lora.up" in key for key in lora_keys
+    )
+    uses_diffusers_format = any(
+        key.startswith("lora_unet_") for key in lora_keys
+    )
 
-        # Construct LoRA keys directly (no transformer prefix needed)
-        lora_down_key = f"{base_name}.lora_down.weight"
-        lora_up_key = f"{base_name}.lora_up.weight"
-        lora_alpha_key = f"{base_name}.alpha"
+    # Map diffusers-style keys to transformer parameter names
+    def convert_diffusers_key_to_transformer_key(diffusers_key):
+        """Convert diffusers-style LoRA keys to match transformer parameter names."""
+        # Remove lora_unet_ prefix
+        key = diffusers_key.replace("lora_unet_", "")
+        
+        # Replace underscores with dots for the transformer_blocks part
+        # e.g., transformer_blocks_0 -> transformer_blocks.0
+        import re
+        key = re.sub(r'transformer_blocks_(\d+)', r'transformer_blocks.\1', key)
+        
+        # Map the naming conventions
+        replacements = {
+            "_attn_add_k_proj": ".attn.add_k_proj",
+            "_attn_add_q_proj": ".attn.add_q_proj", 
+            "_attn_add_v_proj": ".attn.add_v_proj",
+            "_attn_to_add_out": ".attn.to_add_out",
+            "_ff_context_mlp_fc1": ".ff_context.net.0",
+            "_ff_context_mlp_fc2": ".ff_context.net.2",
+            "_ff_mlp_fc1": ".ff.net.0",
+            "_ff_mlp_fc2": ".ff.net.2",
+            "_attn_to_k": ".attn.to_k",
+            "_attn_to_q": ".attn.to_q",
+            "_attn_to_v": ".attn.to_v",
+            "_attn_to_out_0": ".attn.to_out.0",
+        }
+        
+        for old, new in replacements.items():
+            key = key.replace(old, new)
+        
+        return key
 
-        if lora_down_key in lora_state_dict and lora_up_key in lora_state_dict:
-            lora_down = lora_state_dict[lora_down_key]
-            lora_up = lora_state_dict[lora_up_key]
+    if uses_diffusers_format:
+        # Handle diffusers-style LoRA (like modern-anime)
+        for name, param in transformer.named_parameters():
+            base_name = name.replace(".weight", "") if name.endswith(".weight") else name
+            
+            # Try different naming patterns
+            lora_down_key = None
+            lora_up_key = None
+            lora_alpha_key = None
+            
+            # Check for exact match first
+            for key in lora_keys:
+                if key.startswith("lora_unet_"):
+                    converted_key = convert_diffusers_key_to_transformer_key(key.replace(".lora_down.weight", "").replace(".lora_up.weight", "").replace(".alpha", ""))
+                    if converted_key == base_name:
+                        if key.endswith(".lora_down.weight"):
+                            lora_down_key = key
+                        elif key.endswith(".lora_up.weight"):
+                            lora_up_key = key
+                        elif key.endswith(".alpha"):
+                            lora_alpha_key = key
+            
+            if lora_down_key and lora_up_key:
+                lora_down = lora_state_dict[lora_down_key]
+                lora_up = lora_state_dict[lora_up_key]
+                
+                # Get alpha value if it exists, otherwise use rank
+                if lora_alpha_key and lora_alpha_key in lora_state_dict:
+                    lora_alpha = float(lora_state_dict[lora_alpha_key])
+                else:
+                    lora_alpha = lora_down.shape[0]  # Use rank as default
+                
+                rank = lora_down.shape[0]
+                scaling_factor = lora_alpha / rank
+                
+                # Convert to float32 for computation
+                lora_up = lora_up.float()
+                lora_down = lora_down.float()
+                
+                # Apply LoRA: weight = weight + scaling_factor * (up @ down)
+                delta_W = scaling_factor * torch.matmul(lora_up, lora_down)
+                param.data = (param.data + delta_W.to(param.device)).type_as(param.data)
+                merged_count += 1
+    else:
+        # Handle original format LoRAs
+        for name, param in transformer.named_parameters():
+            # Remove .weight suffix if present to get base parameter name
+            base_name = name.replace(".weight", "") if name.endswith(".weight") else name
 
-            # Get alpha value if it exists, otherwise use rank
-            if lora_alpha_key in lora_state_dict:
-                lora_alpha = float(lora_state_dict[lora_alpha_key])
+            if uses_dot_lora_format:
+                lora_down_key = f"transformer.{base_name}.lora.down.weight"
+                lora_up_key = f"transformer.{base_name}.lora.up.weight"
+                lora_alpha_key = f"transformer.{base_name}.alpha"
+
+                if lora_down_key not in lora_state_dict:
+                    lora_down_key = f"{base_name}.lora.down.weight"
+                    lora_up_key = f"{base_name}.lora.up.weight"
+                    lora_alpha_key = f"{base_name}.alpha"
             else:
-                lora_alpha = lora_down.shape[0]  # Use rank as default
+                lora_down_key = f"{base_name}.lora_down.weight"
+                lora_up_key = f"{base_name}.lora_up.weight"
+                lora_alpha_key = f"{base_name}.alpha"
 
-            rank = lora_down.shape[0]
-            scaling_factor = lora_alpha / rank
+            if lora_down_key in lora_state_dict and lora_up_key in lora_state_dict:
+                lora_down = lora_state_dict[lora_down_key]
+                lora_up = lora_state_dict[lora_up_key]
 
-            # Convert to float32 for computation
-            lora_up = lora_up.float()
-            lora_down = lora_down.float()
+                # Get alpha value if it exists, otherwise use rank
+                if lora_alpha_key in lora_state_dict:
+                    lora_alpha = float(lora_state_dict[lora_alpha_key])
+                else:
+                    lora_alpha = lora_down.shape[0]  # Use rank as default
 
-            # Apply LoRA: weight = weight + scaling_factor * (up @ down)
-            delta_W = scaling_factor * torch.matmul(lora_up, lora_down)
-            param.data = (param.data + delta_W.to(param.device)).type_as(param.data)
-            merged_count += 1
+                rank = lora_down.shape[0]
+                scaling_factor = lora_alpha / rank
+
+                # Convert to float32 for computation
+                lora_up = lora_up.float()
+                lora_down = lora_down.float()
+
+                # Apply LoRA: weight = weight + scaling_factor * (up @ down)
+                delta_W = scaling_factor * torch.matmul(lora_up, lora_down)
+                param.data = (param.data + delta_W.to(param.device)).type_as(param.data)
+                merged_count += 1
 
     print(f"Merged {merged_count} LoRA weights into the model")
     return pipe
@@ -201,7 +363,15 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
         default=None,
         help="Output filename (default: edited-<timestamp>.png).",
     )
+    parser.add_argument(
+        "--lora",
+        type=str,
+        default=None,
+        help="Hugging Face model URL or repo ID for additional LoRA to load (e.g., 'flymy-ai/qwen-image-anime-irl-lora' or full HF URL).",
+    )
     return parser
+
+
 
 
 def get_device_and_dtype():
@@ -235,6 +405,15 @@ def generate_image(args) -> None:
 
     pipe = DiffusionPipeline.from_pretrained(model_name, torch_dtype=torch_dtype)
     pipe = pipe.to(device)
+
+    # Apply custom LoRA if specified
+    if args.lora:
+        print(f"Loading custom LoRA: {args.lora}")
+        custom_lora_path = get_custom_lora_path(args.lora)
+        if custom_lora_path:
+            pipe = merge_lora_from_safetensors(pipe, custom_lora_path)
+        else:
+            print("Warning: Could not load custom LoRA, continuing without it...")
 
     # Apply Lightning LoRA if fast or ultra-fast mode is enabled
     if args.ultra_fast:
@@ -350,6 +529,15 @@ def edit_image(args) -> None:
     pipeline = pipeline.to(device)
     pipeline.set_progress_bar_config(disable=None)
 
+    # Apply custom LoRA if specified
+    if args.lora:
+        print(f"Loading custom LoRA: {args.lora}")
+        custom_lora_path = get_custom_lora_path(args.lora)
+        if custom_lora_path:
+            pipeline = merge_lora_from_safetensors(pipeline, custom_lora_path)
+        else:
+            print("Warning: Could not load custom LoRA, continuing without it...")
+
     # Apply Lightning LoRA if fast or ultra-fast mode is enabled
     if args.ultra_fast:
         print("Loading Lightning LoRA v1.0 for ultra-fast editing...")
@@ -428,7 +616,7 @@ def main() -> None:
         from . import __version__
     except ImportError:
         # Fallback when module is loaded without package context
-        __version__ = "0.2.0"
+        __version__ = "0.3.0"
 
     parser = argparse.ArgumentParser(
         description="Qwen-Image MPS - Generate and edit images with Qwen models on Apple Silicon",
