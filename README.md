@@ -13,11 +13,15 @@ Generate and edit images from text prompts using the Hugging Face Diffusers pipe
 - **Ultra-fast mode**: 4-step generation using Lightning LoRA (auto-downloads if needed)
  - **Multi-image generation**: generate multiple images in one run with `--num-images`
 
-### Example
+### Examples
 
-Example result you can create with this project:
+Example generation result:
 
 ![Example image](https://raw.githubusercontent.com/ivanfioravanti/qwen-image-mps/main/example.png)
+
+Example edit results showing winter transformation:
+
+![Edit example](https://raw.githubusercontent.com/ivanfioravanti/qwen-image-mps/main/editexample.jpg)
 
 ## Installation
 
@@ -97,6 +101,12 @@ qwen-image-mps generate -p "Retro sci-fi city skyline at night" --num-images 3 -
 
 # Generate multiple images with a fresh random seed for each image (omit --seed)
 qwen-image-mps generate -p "Retro sci-fi city skyline at night" --num-images 3
+
+# Generate with a custom LoRA for anime style
+qwen-image-mps generate -p "A magical forest" --lora flymy-ai/qwen-image-anime-irl-lora
+
+# Generate with custom LoRA and fast mode combined
+qwen-image-mps generate -p "A futuristic city" --lora your-username/your-lora-model --fast
 ```
 
 ### Image Editing Examples:
@@ -118,6 +128,12 @@ qwen-image-mps edit -i portrait.jpg -p "Change hair color to blonde" -o blonde_p
 
 # Edit with custom seed and steps
 qwen-image-mps edit -i scene.jpg -p "Add dramatic lighting" --seed 123 -s 30
+
+# Edit with a custom LoRA for specific style
+qwen-image-mps edit -i photo.jpg -p "Make it anime style" --lora flymy-ai/qwen-image-anime-irl-lora
+
+# Edit with custom LoRA and ultra-fast mode combined
+qwen-image-mps edit -i landscape.jpg -p "Add cyberpunk elements" --lora your-username/your-lora-model --ultra-fast
 ```
 
 If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-image-mps.py` in the examples above.
@@ -133,6 +149,8 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
   explicitly provided and generating multiple images, a new random seed is used
   for each image.
 - `--num-images` (int): Number of images to generate (default: 1).
+- `--lora` (str): Hugging Face model URL or repo ID for additional LoRA to load
+  (e.g., 'flymy-ai/qwen-image-anime-irl-lora' or full HF URL).
 
 #### Edit Command Arguments
 - `-i, --input` (str): Path to the input image to edit (required).
@@ -142,6 +160,8 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
 - `-uf, --ultra-fast`: Enable ultra-fast mode using Lightning LoRA v1.0 for 4-step editing.
 - `--seed` (int): Random seed for reproducible generation (default: 42).
 - `-o, --output` (str): Output filename (default: edited-<timestamp>.png).
+- `--lora` (str): Hugging Face model URL or repo ID for additional LoRA to load
+  (e.g., 'flymy-ai/qwen-image-anime-irl-lora' or full HF URL).
 
 ## What the script does
 
@@ -184,6 +204,30 @@ When using the `-uf/--ultra-fast` flag, the tool:
 The fast implementation is based on [Qwen-Image-Lightning](https://github.com/ModelTC/Qwen-Image-Lightning). The Lightning LoRA models are available on HuggingFace at [lightx2v/Qwen-Image-Lightning](https://huggingface.co/lightx2v/Qwen-Image-Lightning).
 
 Both generation and editing now support Lightning LoRA for accelerated processing!
+
+#### Loading Additional LoRAs
+
+##### Command Line Usage
+
+The `--lora` argument allows you to load custom LoRA models from Hugging Face Hub:
+
+```bash
+# Using a repo ID
+qwen-image-mps generate -p "Your prompt" --lora flymy-ai/qwen-image-anime-irl-lora
+
+# Using a full Hugging Face URL
+qwen-image-mps generate -p "Your prompt" --lora https://huggingface.co/flymy-ai/qwen-image-anime-irl-lora
+
+# Combine with Lightning LoRA for both speed and style
+qwen-image-mps generate -p "Your prompt" --lora your-username/style-lora --fast
+```
+
+The tool will automatically:
+- Download the LoRA from Hugging Face Hub (cached locally)
+- Find the appropriate safetensors file in the repository
+- Merge the LoRA weights into the model
+- Apply any Lightning LoRA if `--fast` or `--ultra-fast` is also specified
+
 
 ## Notes and tweaks
 - **Aspect ratio / resolution**: The script currently uses the `16:9` entry from an `aspect_ratios` map. You can change the selection in the code where `width, height` is set.

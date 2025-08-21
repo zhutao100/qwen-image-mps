@@ -2,6 +2,7 @@ import argparse
 import os
 import secrets
 import sys
+import tracemalloc
 from datetime import datetime
 
 
@@ -51,6 +52,12 @@ def build_generate_parser(subparsers) -> argparse.ArgumentParser:
         type=int,
         default=1,
         help="Number of images to generate.",
+    )
+    parser.add_argument(
+        "--lora",
+        type=str,
+        default=None,
+        help="Hugging Face model URL or repo ID for additional LoRA to load (e.g., 'flymy-ai/qwen-image-anime-irl-lora' or full HF URL).",
     )
     return parser
 
@@ -104,6 +111,66 @@ def get_lora_path(ultra_fast=False):
         return None
 
 
+def get_custom_lora_path(lora_spec):
+    """Get a custom LoRA from Hugging Face Hub.
+
+    Args:
+        lora_spec: Either a full HF URL or a repo ID (e.g., 'flymy-ai/qwen-image-anime-irl-lora')
+
+    Returns:
+        Path to the downloaded LoRA file, or None if failed
+    """
+    from huggingface_hub import hf_hub_download
+    import re
+
+    # Extract repo_id from URL if it's a full HF URL
+    if lora_spec.startswith("https://huggingface.co/"):
+        # Extract repo_id from URL like https://huggingface.co/flymy-ai/qwen-image-anime-irl-lora
+        match = re.match(r"https://huggingface\.co/([^/]+/[^/]+)", lora_spec)
+        if match:
+            repo_id = match.group(1)
+        else:
+            print(f"Invalid Hugging Face URL format: {lora_spec}")
+            return None
+    else:
+        # Assume it's already a repo ID
+        repo_id = lora_spec
+
+    try:
+        # First, try to list files to find the LoRA safetensors file
+        from huggingface_hub import list_repo_files
+
+        print(f"Looking for LoRA files in {repo_id}...")
+        files = list_repo_files(repo_id, repo_type="model")
+
+        # Find safetensors files that might be LoRAs
+        safetensors_files = [f for f in files if f.endswith(".safetensors")]
+
+        if not safetensors_files:
+            print(f"No safetensors files found in {repo_id}")
+            return None
+
+        # Prefer files with 'lora' in the name, otherwise take the first one
+        lora_files = [f for f in safetensors_files if "lora" in f.lower()]
+        filename = lora_files[0] if lora_files else safetensors_files[0]
+
+        print(f"Downloading LoRA file: {filename}")
+
+        # Download the LoRA file
+        lora_path = hf_hub_download(
+            repo_id=repo_id,
+            filename=filename,
+            repo_type="model",
+        )
+
+        print(f"Custom LoRA loaded from: {lora_path}")
+        return lora_path
+
+    except Exception as e:
+        print(f"Failed to load custom LoRA from {repo_id}: {e}")
+        return None
+
+
 def merge_lora_from_safetensors(pipe, lora_path):
     """Merge LoRA weights from safetensors file into the pipeline's transformer."""
     import safetensors.torch
@@ -114,14 +181,28 @@ def merge_lora_from_safetensors(pipe, lora_path):
     transformer = pipe.transformer
     merged_count = 0
 
+    lora_keys = list(lora_state_dict.keys())
+    uses_dot_lora_format = any(
+        ".lora.down" in key or ".lora.up" in key for key in lora_keys
+    )
+
     for name, param in transformer.named_parameters():
         # Remove .weight suffix if present to get base parameter name
         base_name = name.replace(".weight", "") if name.endswith(".weight") else name
 
-        # Construct LoRA keys directly (no transformer prefix needed)
-        lora_down_key = f"{base_name}.lora_down.weight"
-        lora_up_key = f"{base_name}.lora_up.weight"
-        lora_alpha_key = f"{base_name}.alpha"
+        if uses_dot_lora_format:
+            lora_down_key = f"transformer.{base_name}.lora.down.weight"
+            lora_up_key = f"transformer.{base_name}.lora.up.weight"
+            lora_alpha_key = f"transformer.{base_name}.alpha"
+
+            if lora_down_key not in lora_state_dict:
+                lora_down_key = f"{base_name}.lora.down.weight"
+                lora_up_key = f"{base_name}.lora.up.weight"
+                lora_alpha_key = f"{base_name}.alpha"
+        else:
+            lora_down_key = f"{base_name}.lora_down.weight"
+            lora_up_key = f"{base_name}.lora_up.weight"
+            lora_alpha_key = f"{base_name}.alpha"
 
         if lora_down_key in lora_state_dict and lora_up_key in lora_state_dict:
             lora_down = lora_state_dict[lora_down_key]
@@ -201,7 +282,22 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
         default=None,
         help="Output filename (default: edited-<timestamp>.png).",
     )
+    parser.add_argument(
+        "--lora",
+        type=str,
+        default=None,
+        help="Hugging Face model URL or repo ID for additional LoRA to load (e.g., 'flymy-ai/qwen-image-anime-irl-lora' or full HF URL).",
+    )
     return parser
+
+
+def format_memory(bytes_value):
+    """Format memory size in human-readable format."""
+    for unit in ["B", "KB", "MB", "GB"]:
+        if bytes_value < 1024.0:
+            return f"{bytes_value:.2f} {unit}"
+        bytes_value /= 1024.0
+    return f"{bytes_value:.2f} TB"
 
 
 def get_device_and_dtype():
@@ -230,11 +326,23 @@ def create_generator(device, seed):
 def generate_image(args) -> None:
     from diffusers import DiffusionPipeline
 
+    # Start memory tracking
+    tracemalloc.start()
+
     model_name = "Qwen/Qwen-Image"
     device, torch_dtype = get_device_and_dtype()
 
     pipe = DiffusionPipeline.from_pretrained(model_name, torch_dtype=torch_dtype)
     pipe = pipe.to(device)
+
+    # Apply custom LoRA if specified
+    if args.lora:
+        print(f"Loading custom LoRA: {args.lora}")
+        custom_lora_path = get_custom_lora_path(args.lora)
+        if custom_lora_path:
+            pipe = merge_lora_from_safetensors(pipe, custom_lora_path)
+        else:
+            print("Warning: Could not load custom LoRA, continuing without it...")
 
     # Apply Lightning LoRA if fast or ultra-fast mode is enabled
     if args.ultra_fast:
@@ -334,11 +442,21 @@ def generate_image(args) -> None:
         for path in saved_paths:
             print(f"- {path}")
 
+    # Get peak memory usage and stop tracking
+    current, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+
+    # Print peak memory usage
+    print(f"\nPeak memory usage: {format_memory(peak)}")
+
 
 def edit_image(args) -> None:
     import torch
     from diffusers import QwenImageEditPipeline
     from PIL import Image
+
+    # Start memory tracking
+    tracemalloc.start()
 
     device, torch_dtype = get_device_and_dtype()
 
@@ -349,6 +467,15 @@ def edit_image(args) -> None:
     )
     pipeline = pipeline.to(device)
     pipeline.set_progress_bar_config(disable=None)
+
+    # Apply custom LoRA if specified
+    if args.lora:
+        print(f"Loading custom LoRA: {args.lora}")
+        custom_lora_path = get_custom_lora_path(args.lora)
+        if custom_lora_path:
+            pipeline = merge_lora_from_safetensors(pipeline, custom_lora_path)
+        else:
+            print("Warning: Could not load custom LoRA, continuing without it...")
 
     # Apply Lightning LoRA if fast or ultra-fast mode is enabled
     if args.ultra_fast:
@@ -422,13 +549,20 @@ def edit_image(args) -> None:
     edited_image.save(output_filename)
     print(f"\nEdited image saved to: {os.path.abspath(output_filename)}")
 
+    # Get peak memory usage and stop tracking
+    current, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+
+    # Print peak memory usage
+    print(f"\nPeak memory usage: {format_memory(peak)}")
+
 
 def main() -> None:
     try:
         from . import __version__
     except ImportError:
         # Fallback when module is loaded without package context
-        __version__ = "0.2.0"
+        __version__ = "0.3.0"
 
     parser = argparse.ArgumentParser(
         description="Qwen-Image MPS - Generate and edit images with Qwen models on Apple Silicon",
