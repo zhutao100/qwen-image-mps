@@ -7,6 +7,7 @@ Generate and edit images from text prompts using the Hugging Face Diffusers pipe
 - **Simple CLI**: provide a prompt and number of steps
 - **Image generation**: create new images from text prompts
 - **Image editing**: modify existing images using text instructions
+- **Fast editing**: 8-step and 4-step editing using Lightning LoRA
 - **Timestamped outputs**: avoids overwriting previous generations
 - **Fast mode**: 8-step generation using Lightning LoRA (auto-downloads if needed)
 - **Ultra-fast mode**: 4-step generation using Lightning LoRA (auto-downloads if needed)
@@ -104,14 +105,19 @@ qwen-image-mps generate -p "Retro sci-fi city skyline at night" --num-images 3
 # Basic image editing
 qwen-image-mps edit -i input.jpg -p "Change the sky to sunset colors"
 
-# Edit with custom steps
-qwen-image-mps edit -i photo.png -p "Add snow to the mountains" -s 30
+# Fast mode with Lightning LoRA (8 steps)
+qwen-image-mps edit -i photo.png -p "Add snow to the mountains" --fast
+
+# Ultra-fast mode with Lightning LoRA (4 steps)
+qwen-image-mps edit -i landscape.jpg -p "Make it autumn colors" --ultra-fast
+# Or use the short form
+qwen-image-mps edit -i landscape.jpg -p "Make it autumn colors" -uf
 
 # Edit with custom output filename
-qwen-image-mps edit -i landscape.jpg -p "Make it autumn colors" -o autumn_landscape.png
+qwen-image-mps edit -i portrait.jpg -p "Change hair color to blonde" -o blonde_portrait.png
 
 # Edit with custom seed and steps
-qwen-image-mps edit -i portrait.jpg -p "Change hair color to blonde" --seed 123 -s 30
+qwen-image-mps edit -i scene.jpg -p "Add dramatic lighting" --seed 123 -s 30
 ```
 
 If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-image-mps.py` in the examples above.
@@ -131,7 +137,9 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
 #### Edit Command Arguments
 - `-i, --input` (str): Path to the input image to edit (required).
 - `-p, --prompt` (str): Editing instructions (required).
-- `-s, --steps` (int): Number of inference steps (default: 50).
+- `-s, --steps` (int): Number of inference steps for normal editing (default: 50).
+- `-f, --fast`: Enable fast mode using Lightning LoRA v1.1 for 8-step editing.
+- `-uf, --ultra-fast`: Enable ultra-fast mode using Lightning LoRA v1.0 for 4-step editing.
 - `--seed` (int): Random seed for reproducible generation (default: 42).
 - `-o, --output` (str): Output filename (default: edited-<timestamp>.png).
 
@@ -175,7 +183,7 @@ When using the `-uf/--ultra-fast` flag, the tool:
 
 The fast implementation is based on [Qwen-Image-Lightning](https://github.com/ModelTC/Qwen-Image-Lightning). The Lightning LoRA models are available on HuggingFace at [lightx2v/Qwen-Image-Lightning](https://huggingface.co/lightx2v/Qwen-Image-Lightning).
 
-**Note:** Fast modes are currently only available for image generation, not editing.
+Both generation and editing now support Lightning LoRA for accelerated processing!
 
 ## Notes and tweaks
 - **Aspect ratio / resolution**: The script currently uses the `16:9` entry from an `aspect_ratios` map. You can change the selection in the code where `width, height` is set.
