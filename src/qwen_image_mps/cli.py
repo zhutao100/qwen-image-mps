@@ -2,7 +2,6 @@ import argparse
 import os
 import secrets
 import sys
-import tracemalloc
 from datetime import datetime
 
 
@@ -182,49 +181,131 @@ def merge_lora_from_safetensors(pipe, lora_path):
     merged_count = 0
 
     lora_keys = list(lora_state_dict.keys())
+    
+    # Detect LoRA format
     uses_dot_lora_format = any(
         ".lora.down" in key or ".lora.up" in key for key in lora_keys
     )
+    uses_diffusers_format = any(
+        key.startswith("lora_unet_") for key in lora_keys
+    )
 
-    for name, param in transformer.named_parameters():
-        # Remove .weight suffix if present to get base parameter name
-        base_name = name.replace(".weight", "") if name.endswith(".weight") else name
+    # Map diffusers-style keys to transformer parameter names
+    def convert_diffusers_key_to_transformer_key(diffusers_key):
+        """Convert diffusers-style LoRA keys to match transformer parameter names."""
+        # Remove lora_unet_ prefix
+        key = diffusers_key.replace("lora_unet_", "")
+        
+        # Replace underscores with dots for the transformer_blocks part
+        # e.g., transformer_blocks_0 -> transformer_blocks.0
+        import re
+        key = re.sub(r'transformer_blocks_(\d+)', r'transformer_blocks.\1', key)
+        
+        # Map the naming conventions
+        replacements = {
+            "_attn_add_k_proj": ".attn.add_k_proj",
+            "_attn_add_q_proj": ".attn.add_q_proj", 
+            "_attn_add_v_proj": ".attn.add_v_proj",
+            "_attn_to_add_out": ".attn.to_add_out",
+            "_ff_context_mlp_fc1": ".ff_context.net.0",
+            "_ff_context_mlp_fc2": ".ff_context.net.2",
+            "_ff_mlp_fc1": ".ff.net.0",
+            "_ff_mlp_fc2": ".ff.net.2",
+            "_attn_to_k": ".attn.to_k",
+            "_attn_to_q": ".attn.to_q",
+            "_attn_to_v": ".attn.to_v",
+            "_attn_to_out_0": ".attn.to_out.0",
+        }
+        
+        for old, new in replacements.items():
+            key = key.replace(old, new)
+        
+        return key
 
-        if uses_dot_lora_format:
-            lora_down_key = f"transformer.{base_name}.lora.down.weight"
-            lora_up_key = f"transformer.{base_name}.lora.up.weight"
-            lora_alpha_key = f"transformer.{base_name}.alpha"
+    if uses_diffusers_format:
+        # Handle diffusers-style LoRA (like modern-anime)
+        for name, param in transformer.named_parameters():
+            base_name = name.replace(".weight", "") if name.endswith(".weight") else name
+            
+            # Try different naming patterns
+            lora_down_key = None
+            lora_up_key = None
+            lora_alpha_key = None
+            
+            # Check for exact match first
+            for key in lora_keys:
+                if key.startswith("lora_unet_"):
+                    converted_key = convert_diffusers_key_to_transformer_key(key.replace(".lora_down.weight", "").replace(".lora_up.weight", "").replace(".alpha", ""))
+                    if converted_key == base_name:
+                        if key.endswith(".lora_down.weight"):
+                            lora_down_key = key
+                        elif key.endswith(".lora_up.weight"):
+                            lora_up_key = key
+                        elif key.endswith(".alpha"):
+                            lora_alpha_key = key
+            
+            if lora_down_key and lora_up_key:
+                lora_down = lora_state_dict[lora_down_key]
+                lora_up = lora_state_dict[lora_up_key]
+                
+                # Get alpha value if it exists, otherwise use rank
+                if lora_alpha_key and lora_alpha_key in lora_state_dict:
+                    lora_alpha = float(lora_state_dict[lora_alpha_key])
+                else:
+                    lora_alpha = lora_down.shape[0]  # Use rank as default
+                
+                rank = lora_down.shape[0]
+                scaling_factor = lora_alpha / rank
+                
+                # Convert to float32 for computation
+                lora_up = lora_up.float()
+                lora_down = lora_down.float()
+                
+                # Apply LoRA: weight = weight + scaling_factor * (up @ down)
+                delta_W = scaling_factor * torch.matmul(lora_up, lora_down)
+                param.data = (param.data + delta_W.to(param.device)).type_as(param.data)
+                merged_count += 1
+    else:
+        # Handle original format LoRAs
+        for name, param in transformer.named_parameters():
+            # Remove .weight suffix if present to get base parameter name
+            base_name = name.replace(".weight", "") if name.endswith(".weight") else name
 
-            if lora_down_key not in lora_state_dict:
-                lora_down_key = f"{base_name}.lora.down.weight"
-                lora_up_key = f"{base_name}.lora.up.weight"
-                lora_alpha_key = f"{base_name}.alpha"
-        else:
-            lora_down_key = f"{base_name}.lora_down.weight"
-            lora_up_key = f"{base_name}.lora_up.weight"
-            lora_alpha_key = f"{base_name}.alpha"
+            if uses_dot_lora_format:
+                lora_down_key = f"transformer.{base_name}.lora.down.weight"
+                lora_up_key = f"transformer.{base_name}.lora.up.weight"
+                lora_alpha_key = f"transformer.{base_name}.alpha"
 
-        if lora_down_key in lora_state_dict and lora_up_key in lora_state_dict:
-            lora_down = lora_state_dict[lora_down_key]
-            lora_up = lora_state_dict[lora_up_key]
-
-            # Get alpha value if it exists, otherwise use rank
-            if lora_alpha_key in lora_state_dict:
-                lora_alpha = float(lora_state_dict[lora_alpha_key])
+                if lora_down_key not in lora_state_dict:
+                    lora_down_key = f"{base_name}.lora.down.weight"
+                    lora_up_key = f"{base_name}.lora.up.weight"
+                    lora_alpha_key = f"{base_name}.alpha"
             else:
-                lora_alpha = lora_down.shape[0]  # Use rank as default
+                lora_down_key = f"{base_name}.lora_down.weight"
+                lora_up_key = f"{base_name}.lora_up.weight"
+                lora_alpha_key = f"{base_name}.alpha"
 
-            rank = lora_down.shape[0]
-            scaling_factor = lora_alpha / rank
+            if lora_down_key in lora_state_dict and lora_up_key in lora_state_dict:
+                lora_down = lora_state_dict[lora_down_key]
+                lora_up = lora_state_dict[lora_up_key]
 
-            # Convert to float32 for computation
-            lora_up = lora_up.float()
-            lora_down = lora_down.float()
+                # Get alpha value if it exists, otherwise use rank
+                if lora_alpha_key in lora_state_dict:
+                    lora_alpha = float(lora_state_dict[lora_alpha_key])
+                else:
+                    lora_alpha = lora_down.shape[0]  # Use rank as default
 
-            # Apply LoRA: weight = weight + scaling_factor * (up @ down)
-            delta_W = scaling_factor * torch.matmul(lora_up, lora_down)
-            param.data = (param.data + delta_W.to(param.device)).type_as(param.data)
-            merged_count += 1
+                rank = lora_down.shape[0]
+                scaling_factor = lora_alpha / rank
+
+                # Convert to float32 for computation
+                lora_up = lora_up.float()
+                lora_down = lora_down.float()
+
+                # Apply LoRA: weight = weight + scaling_factor * (up @ down)
+                delta_W = scaling_factor * torch.matmul(lora_up, lora_down)
+                param.data = (param.data + delta_W.to(param.device)).type_as(param.data)
+                merged_count += 1
 
     print(f"Merged {merged_count} LoRA weights into the model")
     return pipe
@@ -291,13 +372,6 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
     return parser
 
 
-def format_memory(bytes_value):
-    """Format memory size in human-readable format."""
-    for unit in ["B", "KB", "MB", "GB"]:
-        if bytes_value < 1024.0:
-            return f"{bytes_value:.2f} {unit}"
-        bytes_value /= 1024.0
-    return f"{bytes_value:.2f} TB"
 
 
 def get_device_and_dtype():
@@ -325,9 +399,6 @@ def create_generator(device, seed):
 
 def generate_image(args) -> None:
     from diffusers import DiffusionPipeline
-
-    # Start memory tracking
-    tracemalloc.start()
 
     model_name = "Qwen/Qwen-Image"
     device, torch_dtype = get_device_and_dtype()
@@ -442,21 +513,11 @@ def generate_image(args) -> None:
         for path in saved_paths:
             print(f"- {path}")
 
-    # Get peak memory usage and stop tracking
-    current, peak = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
-
-    # Print peak memory usage
-    print(f"\nPeak memory usage: {format_memory(peak)}")
-
 
 def edit_image(args) -> None:
     import torch
     from diffusers import QwenImageEditPipeline
     from PIL import Image
-
-    # Start memory tracking
-    tracemalloc.start()
 
     device, torch_dtype = get_device_and_dtype()
 
@@ -548,13 +609,6 @@ def edit_image(args) -> None:
 
     edited_image.save(output_filename)
     print(f"\nEdited image saved to: {os.path.abspath(output_filename)}")
-
-    # Get peak memory usage and stop tracking
-    current, peak = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
-
-    # Print peak memory usage
-    print(f"\nPeak memory usage: {format_memory(peak)}")
 
 
 def main() -> None:
