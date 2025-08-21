@@ -56,7 +56,7 @@ def build_generate_parser(subparsers) -> argparse.ArgumentParser:
         "--lora",
         type=str,
         default=None,
-        help="Hugging Face model URL or repo ID for additional LoRA to load (e.g., 'flymy-ai/qwen-image-anime-irl-lora' or full HF URL).",
+        help="Path to local .safetensors file, Hugging Face model URL or repo ID for additional LoRA to load (e.g., '~/Downloads/lora.safetensors', 'flymy-ai/qwen-image-anime-irl-lora' or full HF URL).",
     )
     return parser
 
@@ -111,17 +111,26 @@ def get_lora_path(ultra_fast=False):
 
 
 def get_custom_lora_path(lora_spec):
-    """Get a custom LoRA from Hugging Face Hub.
+    """Get a custom LoRA from Hugging Face Hub or load from a local file.
 
     Args:
-        lora_spec: Either a full HF URL or a repo ID (e.g., 'flymy-ai/qwen-image-anime-irl-lora')
+        lora_spec: Either a local file path to a safetensors file, a full HF URL, 
+                   or a repo ID (e.g., 'flymy-ai/qwen-image-anime-irl-lora')
 
     Returns:
-        Path to the downloaded LoRA file, or None if failed
+        Path to the LoRA file (local or downloaded), or None if failed
     """
     from huggingface_hub import hf_hub_download
     import re
-
+    from pathlib import Path
+    
+    # Check if it's a local file path (handles both absolute and ~ paths)
+    lora_path = Path(lora_spec).expanduser()
+    if lora_path.exists() and lora_path.suffix == '.safetensors':
+        print(f"Using local LoRA file: {lora_path}")
+        return str(lora_path.absolute())
+    
+    # If not a local file, try HuggingFace
     # Extract repo_id from URL if it's a full HF URL
     if lora_spec.startswith("https://huggingface.co/"):
         # Extract repo_id from URL like https://huggingface.co/flymy-ai/qwen-image-anime-irl-lora
@@ -189,6 +198,9 @@ def merge_lora_from_safetensors(pipe, lora_path):
     uses_diffusers_format = any(
         key.startswith("lora_unet_") for key in lora_keys
     )
+    uses_lora_ab_format = any(
+        ".lora_A" in key or ".lora_B" in key for key in lora_keys
+    )
 
     # Map diffusers-style keys to transformer parameter names
     def convert_diffusers_key_to_transformer_key(diffusers_key):
@@ -222,7 +234,49 @@ def merge_lora_from_safetensors(pipe, lora_path):
         
         return key
 
-    if uses_diffusers_format:
+    if uses_lora_ab_format:
+        # Handle lora_A/lora_B format (e.g., diffusion_model.transformer_blocks.X.attn.Y.lora_A.weight)
+        for name, param in transformer.named_parameters():
+            base_name = name.replace(".weight", "") if name.endswith(".weight") else name
+            
+            # Try to find matching LoRA weights with different possible prefixes
+            lora_a_key = None
+            lora_b_key = None
+            
+            # Try with diffusion_model prefix
+            test_key_a = f"diffusion_model.{base_name}.lora_A.weight"
+            test_key_b = f"diffusion_model.{base_name}.lora_B.weight"
+            
+            if test_key_a in lora_state_dict and test_key_b in lora_state_dict:
+                lora_a_key = test_key_a
+                lora_b_key = test_key_b
+            else:
+                # Try without prefix
+                test_key_a = f"{base_name}.lora_A.weight"
+                test_key_b = f"{base_name}.lora_B.weight"
+                
+                if test_key_a in lora_state_dict and test_key_b in lora_state_dict:
+                    lora_a_key = test_key_a
+                    lora_b_key = test_key_b
+            
+            if lora_a_key and lora_b_key:
+                lora_down = lora_state_dict[lora_a_key]  # lora_A is equivalent to lora_down
+                lora_up = lora_state_dict[lora_b_key]    # lora_B is equivalent to lora_up
+                
+                # Default alpha to rank if not specified
+                lora_alpha = lora_down.shape[0]
+                rank = lora_down.shape[0]
+                scaling_factor = lora_alpha / rank
+                
+                # Convert to float32 for computation
+                lora_up = lora_up.float()
+                lora_down = lora_down.float()
+                
+                # Apply LoRA: weight = weight + scaling_factor * (up @ down)
+                delta_W = scaling_factor * torch.matmul(lora_up, lora_down)
+                param.data = (param.data + delta_W.to(param.device)).type_as(param.data)
+                merged_count += 1
+    elif uses_diffusers_format:
         # Handle diffusers-style LoRA (like modern-anime)
         for name, param in transformer.named_parameters():
             base_name = name.replace(".weight", "") if name.endswith(".weight") else name
@@ -367,7 +421,7 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
         "--lora",
         type=str,
         default=None,
-        help="Hugging Face model URL or repo ID for additional LoRA to load (e.g., 'flymy-ai/qwen-image-anime-irl-lora' or full HF URL).",
+        help="Path to local .safetensors file, Hugging Face model URL or repo ID for additional LoRA to load (e.g., '~/Downloads/lora.safetensors', 'flymy-ai/qwen-image-anime-irl-lora' or full HF URL).",
     )
     return parser
 
@@ -616,7 +670,7 @@ def main() -> None:
         from . import __version__
     except ImportError:
         # Fallback when module is loaded without package context
-        __version__ = "0.3.0"
+        __version__ = "0.4.0"
 
     parser = argparse.ArgumentParser(
         description="Qwen-Image MPS - Generate and edit images with Qwen models on Apple Silicon",
