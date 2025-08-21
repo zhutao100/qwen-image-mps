@@ -174,7 +174,19 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
         "--steps",
         type=int,
         default=50,
-        help="Number of inference steps.",
+        help="Number of inference steps for normal editing.",
+    )
+    parser.add_argument(
+        "-f",
+        "--fast",
+        action="store_true",
+        help="Use Lightning LoRA v1.1 for fast editing (8 steps).",
+    )
+    parser.add_argument(
+        "-uf",
+        "--ultra-fast",
+        action="store_true",
+        help="Use Lightning LoRA v1.0 for ultra-fast editing (4 steps).",
     )
     parser.add_argument(
         "--seed",
@@ -338,6 +350,41 @@ def edit_image(args) -> None:
     pipeline = pipeline.to(device)
     pipeline.set_progress_bar_config(disable=None)
 
+    # Apply Lightning LoRA if fast or ultra-fast mode is enabled
+    if args.ultra_fast:
+        print("Loading Lightning LoRA v1.0 for ultra-fast editing...")
+        lora_path = get_lora_path(ultra_fast=True)
+        if lora_path:
+            # Use manual LoRA merging for edit pipeline
+            pipeline = merge_lora_from_safetensors(pipeline, lora_path)
+            # Use fixed 4 steps for Ultra Lightning mode
+            num_steps = 4
+            cfg_scale = 1.0
+            print(f"Ultra-fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
+        else:
+            print("Warning: Could not load Lightning LoRA v1.0")
+            print("Falling back to normal editing...")
+            num_steps = args.steps
+            cfg_scale = 4.0
+    elif args.fast:
+        print("Loading Lightning LoRA v1.1 for fast editing...")
+        lora_path = get_lora_path(ultra_fast=False)
+        if lora_path:
+            # Use manual LoRA merging for edit pipeline
+            pipeline = merge_lora_from_safetensors(pipeline, lora_path)
+            # Use fixed 8 steps for Lightning mode
+            num_steps = 8
+            cfg_scale = 1.0
+            print(f"Fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
+        else:
+            print("Warning: Could not load Lightning LoRA v1.1")
+            print("Falling back to normal editing...")
+            num_steps = args.steps
+            cfg_scale = 4.0
+    else:
+        num_steps = args.steps
+        cfg_scale = 4.0
+
     # Load input image
     try:
         image = Image.open(args.input).convert("RGB")
@@ -351,7 +398,7 @@ def edit_image(args) -> None:
 
     # Perform image editing
     print(f"Editing image with prompt: {args.prompt}")
-    print(f"Using {args.steps} inference steps...")
+    print(f"Using {num_steps} inference steps...")
 
     # QwenImageEditPipeline for image editing
     with torch.inference_mode():
@@ -359,9 +406,9 @@ def edit_image(args) -> None:
             image=image,
             prompt=args.prompt,
             negative_prompt=" ",
-            num_inference_steps=args.steps,
+            num_inference_steps=num_steps,
             generator=generator,
-            guidance_scale=4.0,
+            guidance_scale=cfg_scale,
         )
         edited_image = output.images[0]
 
