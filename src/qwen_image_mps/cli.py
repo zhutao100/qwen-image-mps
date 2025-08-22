@@ -1,7 +1,6 @@
 import argparse
 import os
 import secrets
-import sys
 from datetime import datetime
 
 
@@ -40,10 +39,10 @@ def build_generate_parser(subparsers) -> argparse.ArgumentParser:
     parser.add_argument(
         "--seed",
         type=int,
-        default=42,
+        default=None,
         help=(
-            "Random seed for reproducible generation (default: 42). If not explicitly "
-            "provided and generating multiple images, a new random seed is used for each image."
+            "Random seed for reproducible generation. If not provided, a random seed "
+            "will be used for each image."
         ),
     )
     parser.add_argument(
@@ -422,8 +421,8 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
     parser.add_argument(
         "--seed",
         type=int,
-        default=42,
-        help="Random seed for reproducible generation.",
+        default=None,
+        help="Random seed for reproducible generation. If not provided, a random seed will be used.",
     )
     parser.add_argument(
         "-o",
@@ -520,8 +519,6 @@ def generate_image(args) -> None:
         num_steps = args.steps
         cfg_scale = 4.0
 
-    prompt = args.prompt
-
     # LEGO Batman photobomb mode!
     if args.batman:
         import random
@@ -538,8 +535,6 @@ def generate_image(args) -> None:
             ", with a tiny LEGO Batman minifigure sliding into frame on a grappling hook",
             ", and a small LEGO Batman figure in the distance shouting 'WHERE ARE THEY?!'",
         ]
-        batman_action = random.choice(batman_additions)
-        prompt = prompt + batman_action
         print("\n🦇 BATMAN MODE ACTIVATED: Adding surprise LEGO Batman photobomb!")
 
     negative_prompt = (
@@ -566,24 +561,28 @@ def generate_image(args) -> None:
 
     saved_paths = []
 
-    # Detect whether the user explicitly provided --seed on the command line
-    argv = sys.argv[1:]
-    seed_provided = ("--seed" in argv) or any(arg.startswith("--seed=") for arg in argv)
     for image_index in range(num_images):
-        if seed_provided:
+        if args.seed is not None:
             # Deterministic: increment seed per image starting from the provided seed
             per_image_seed = int(args.seed) + image_index
-        elif num_images > 1:
-            # Non-deterministic for multi-image when no seed explicitly provided
+        else:
+            # Random seed for each image when no seed is provided
             # Use 63-bit to keep it positive and well within torch's expected range
             per_image_seed = secrets.randbits(63)
-        else:
-            # Single image without explicit seed: use default (42)
-            per_image_seed = int(args.seed)
+
+        # Choose a random Batman prompt for each image when in Batman mode
+        current_prompt = args.prompt
+        if args.batman:
+            batman_action = random.choice(batman_additions)
+            current_prompt = current_prompt + batman_action
+            if num_images > 1:
+                print(
+                    f"  Image {image_index + 1}: Using Batman variant - {batman_action[2:50]}..."
+                )
 
         generator = create_generator(device, per_image_seed)
         image = pipe(
-            prompt=prompt,
+            prompt=current_prompt,
             negative_prompt=negative_prompt,
             width=width,
             height=height,
@@ -675,7 +674,8 @@ def edit_image(args) -> None:
         return
 
     # Set up generation parameters
-    generator = create_generator(device, args.seed)
+    seed = args.seed if args.seed is not None else secrets.randbits(63)
+    generator = create_generator(device, seed)
 
     # Modify prompt for Batman photobomb mode
     edit_prompt = args.prompt
