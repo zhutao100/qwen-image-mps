@@ -520,10 +520,11 @@ def generate_image(args) -> None:
         cfg_scale = 4.0
 
     prompt = args.prompt
-    
+
     # LEGO Batman photobomb mode!
     if args.batman:
         import random
+
         batman_additions = [
             ", with a tiny LEGO Batman minifigure photobombing in the corner doing a dramatic cape pose",
             ", featuring a small LEGO Batman minifigure sneaking into the frame from the side",
@@ -539,7 +540,7 @@ def generate_image(args) -> None:
         batman_action = random.choice(batman_additions)
         prompt = prompt + batman_action
         print(f"\n🦇 BATMAN MODE ACTIVATED: Adding surprise LEGO Batman photobomb!")
-    
+
     negative_prompt = (
         " "  # using an empty string if you do not have specific concept to remove
     )
@@ -674,11 +675,12 @@ def edit_image(args) -> None:
 
     # Set up generation parameters
     generator = create_generator(device, args.seed)
-    
+
     # Modify prompt for Batman photobomb mode
     edit_prompt = args.prompt
     if args.batman:
         import random
+
         batman_edits = [
             " Also add a tiny LEGO Batman minifigure photobombing somewhere unexpected.",
             " Include a small LEGO Batman figure sneaking into the scene.",

@@ -50,7 +50,8 @@ def import_from_url(url, module_name):
 if __name__ == "__main__":
     # Import cli.py locally to test new features
     import sys
-    sys.path.insert(0, 'src')
+
+    sys.path.insert(0, "src")
     from qwen_image_mps import cli
 
     # Run the main function
