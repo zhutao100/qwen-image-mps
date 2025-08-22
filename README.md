@@ -11,7 +11,8 @@ Generate and edit images from text prompts using the Hugging Face Diffusers pipe
 - **Timestamped outputs**: avoids overwriting previous generations
 - **Fast mode**: 8-step generation using Lightning LoRA (auto-downloads if needed)
 - **Ultra-fast mode**: 4-step generation using Lightning LoRA (auto-downloads if needed)
- - **Multi-image generation**: generate multiple images in one run with `--num-images`
+- **Multi-image generation**: generate multiple images in one run with `--num-images`
+- **Batman mode**: Add a LEGO Batman minifigure photobombing your images with `--batman` 🦇
 
 ### Examples
 
@@ -107,6 +108,12 @@ qwen-image-mps generate -p "A magical forest" --lora flymy-ai/qwen-image-anime-i
 
 # Generate with custom LoRA and fast mode combined
 qwen-image-mps generate -p "A futuristic city" --lora your-username/your-lora-model --fast
+
+# Batman mode: LEGO Batman photobombs your image!
+qwen-image-mps generate -p "A magical forest with elves" --batman
+
+# Combine Batman mode with ultra-fast generation
+qwen-image-mps generate -p "A serene mountain lake" --batman --ultra-fast
 ```
 
 ### Image Editing Examples:
@@ -134,6 +141,12 @@ qwen-image-mps edit -i photo.jpg -p "Make it anime style" --lora flymy-ai/qwen-i
 
 # Edit with custom LoRA and ultra-fast mode combined
 qwen-image-mps edit -i landscape.jpg -p "Add cyberpunk elements" --lora your-username/your-lora-model --ultra-fast
+
+# Batman mode for editing: LEGO Batman photobombs your edited image!
+qwen-image-mps edit -i photo.jpg -p "Change to sunset lighting" --batman
+
+# Combine Batman mode with fast editing
+qwen-image-mps edit -i portrait.jpg -p "Add dramatic shadows" --batman --fast
 ```
 
 If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-image-mps.py` in the examples above.
@@ -151,6 +164,7 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
 - `--num-images` (int): Number of images to generate (default: 1).
 - `--lora` (str): Hugging Face model URL or repo ID for additional LoRA to load
   (e.g., 'flymy-ai/qwen-image-anime-irl-lora' or full HF URL).
+- `--batman`: Add a LEGO Batman minifigure photobombing your image in unexpected ways!
 
 #### Edit Command Arguments
 - `-i, --input` (str): Path to the input image to edit (required).
@@ -162,6 +176,7 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
 - `-o, --output` (str): Output filename (default: edited-<timestamp>.png).
 - `--lora` (str): Hugging Face model URL or repo ID for additional LoRA to load
   (e.g., 'flymy-ai/qwen-image-anime-irl-lora' or full HF URL).
+- `--batman`: Add a LEGO Batman minifigure photobombing your edited image!
 
 ## What the script does
 
@@ -204,6 +219,21 @@ When using the `-uf/--ultra-fast` flag, the tool:
 The fast implementation is based on [Qwen-Image-Lightning](https://github.com/ModelTC/Qwen-Image-Lightning). The Lightning LoRA models are available on HuggingFace at [lightx2v/Qwen-Image-Lightning](https://huggingface.co/lightx2v/Qwen-Image-Lightning).
 
 Both generation and editing now support Lightning LoRA for accelerated processing!
+
+### Batman Mode 🦇
+
+The `--batman` flag adds a fun twist to your image generation and editing by having a LEGO Batman minifigure photobomb your images! This feature works with both `generate` and `edit` commands.
+
+When enabled, the tool randomly selects from various photobombing styles:
+- LEGO Batman doing dramatic cape poses
+- Sneaking into frame from the sides
+- Peeking from behind objects
+- Hanging upside down from the top
+- Doing the Batusi dance
+- Striking heroic poses
+- Shouting his famous catchphrases
+
+This feature adds a playful element to your images while keeping the main subject intact. The LEGO Batman appears small but noticeable, creating unexpected and humorous compositions.
 
 #### Loading Additional LoRAs
 
