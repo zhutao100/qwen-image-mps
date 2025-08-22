@@ -48,9 +48,11 @@ def import_from_url(url, module_name):
 
 
 if __name__ == "__main__":
-    # Import cli.py from GitHub
-    cli_url = "https://raw.githubusercontent.com/ivanfioravanti/qwen-image-mps/main/src/qwen_image_mps/cli.py"
-    cli = import_from_url(cli_url, "qwen_image_mps_cli")
+    # Import cli.py locally to test new features
+    import sys
+
+    sys.path.insert(0, "src")
+    from qwen_image_mps import cli
 
     # Run the main function
     cli.main()

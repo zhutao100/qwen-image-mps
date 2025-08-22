@@ -58,6 +58,11 @@ def build_generate_parser(subparsers) -> argparse.ArgumentParser:
         default=None,
         help="Path to local .safetensors file, Hugging Face model URL or repo ID for additional LoRA to load (e.g., '~/Downloads/lora.safetensors', 'flymy-ai/qwen-image-anime-irl-lora' or full HF URL).",
     )
+    parser.add_argument(
+        "--batman",
+        action="store_true",
+        help="LEGO Batman photobombs your image! 🦇",
+    )
     return parser
 
 
@@ -433,6 +438,11 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
         default=None,
         help="Path to local .safetensors file, Hugging Face model URL or repo ID for additional LoRA to load (e.g., '~/Downloads/lora.safetensors', 'flymy-ai/qwen-image-anime-irl-lora' or full HF URL).",
     )
+    parser.add_argument(
+        "--batman",
+        action="store_true",
+        help="LEGO Batman photobombs your image! 🦇",
+    )
     return parser
 
 
@@ -511,6 +521,27 @@ def generate_image(args) -> None:
         cfg_scale = 4.0
 
     prompt = args.prompt
+
+    # LEGO Batman photobomb mode!
+    if args.batman:
+        import random
+
+        batman_additions = [
+            ", with a tiny LEGO Batman minifigure photobombing in the corner doing a dramatic cape pose",
+            ", featuring a small LEGO Batman minifigure sneaking into the frame from the side",
+            ", and a miniature LEGO Batman figure peeking from behind something",
+            ", with a tiny LEGO Batman minifigure in the background striking a heroic pose",
+            ", including a small LEGO Batman figure hanging upside down from the top of the frame",
+            ", with a tiny LEGO Batman minifigure doing the Batusi dance in the corner",
+            ", and a small LEGO Batman figure photobombing with jazz hands",
+            ", featuring a miniature LEGO Batman popping up from the bottom like 'I'm Batman!'",
+            ", with a tiny LEGO Batman minifigure sliding into frame on a grappling hook",
+            ", and a small LEGO Batman figure in the distance shouting 'WHERE ARE THEY?!'",
+        ]
+        batman_action = random.choice(batman_additions)
+        prompt = prompt + batman_action
+        print("\n🦇 BATMAN MODE ACTIVATED: Adding surprise LEGO Batman photobomb!")
+
     negative_prompt = (
         " "  # using an empty string if you do not have specific concept to remove
     )
@@ -646,15 +677,36 @@ def edit_image(args) -> None:
     # Set up generation parameters
     generator = create_generator(device, args.seed)
 
+    # Modify prompt for Batman photobomb mode
+    edit_prompt = args.prompt
+    if args.batman:
+        import random
+
+        batman_edits = [
+            " Also add a tiny LEGO Batman minifigure photobombing somewhere unexpected.",
+            " Include a small LEGO Batman figure sneaking into the scene.",
+            " Add a miniature LEGO Batman peeking from an edge.",
+            " Put a tiny LEGO Batman minifigure doing something heroic in the background.",
+            " Add a small LEGO Batman figure photobombing with a dramatic pose.",
+            " Include a tiny LEGO Batman minifigure who looks like he's saying 'I'm Batman!'",
+            " Add a miniature LEGO Batman swinging on a tiny grappling hook.",
+            " Include a small LEGO Batman figure doing the Batusi dance.",
+            " Add a tiny LEGO Batman minifigure brooding mysteriously in a corner.",
+            " Put a small LEGO Batman photobombing like he's protecting Gotham.",
+        ]
+        batman_edit = random.choice(batman_edits)
+        edit_prompt = args.prompt + batman_edit
+        print("\n🦇 BATMAN MODE ACTIVATED: LEGO Batman will photobomb this edit!")
+
     # Perform image editing
-    print(f"Editing image with prompt: {args.prompt}")
+    print(f"Editing image with prompt: {edit_prompt}")
     print(f"Using {num_steps} inference steps...")
 
     # QwenImageEditPipeline for image editing
     with torch.inference_mode():
         output = pipeline(
             image=image,
-            prompt=args.prompt,
+            prompt=edit_prompt,
             negative_prompt=" ",
             num_inference_steps=num_steps,
             generator=generator,
