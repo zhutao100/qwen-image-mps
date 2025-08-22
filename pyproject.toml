@@ -44,6 +44,7 @@ dev = [
     "black",
     "isort",
     "ruff",
+    "pre-commit",
 ]
 
 [project.urls]
@@ -68,6 +69,8 @@ line_length = 88
 [tool.ruff]
 line-length = 88
 target-version = "py39"
+
+[tool.ruff.lint]
 select = [
     "E",    # pycodestyle errors
     "W",    # pycodestyle warnings
