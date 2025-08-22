@@ -120,9 +120,10 @@ def get_custom_lora_path(lora_spec):
     Returns:
         Path to the LoRA file (local or downloaded), or None if failed
     """
-    from huggingface_hub import hf_hub_download
     import re
     from pathlib import Path
+
+    from huggingface_hub import hf_hub_download
 
     # Check if it's a local file path (handles both absolute and ~ paths)
     lora_path = Path(lora_spec).expanduser()
