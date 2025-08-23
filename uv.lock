@@ -1080,7 +1080,7 @@ wheels = [
 
 [[package]]
 name = "qwen-image-mps"
-version = "0.4.2"
+version = "0.4.3"
 source = { editable = "." }
 dependencies = [
     { name = "accelerate" },
