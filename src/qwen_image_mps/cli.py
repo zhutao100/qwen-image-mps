@@ -52,6 +52,13 @@ def build_generate_parser(subparsers) -> argparse.ArgumentParser:
         help="Number of images to generate.",
     )
     parser.add_argument(
+        "--aspect",
+        type=str,
+        choices=["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"],
+        default="16:9",
+        help="Aspect ratio for the output image.",
+    )
+    parser.add_argument(
         "--lora",
         type=str,
         default=None,
@@ -551,7 +558,7 @@ def generate_image(args) -> None:
         "2:3": (1056, 1584),
     }
 
-    width, height = aspect_ratios["16:9"]
+    width, height = aspect_ratios[args.aspect]
 
     # Ensure we generate at least one image
     num_images = max(1, int(args.num_images))
@@ -730,7 +737,7 @@ def main() -> None:
         from . import __version__
     except ImportError:
         # Fallback when module is loaded without package context
-        __version__ = "0.4.2"
+        __version__ = "0.4.3"
 
     parser = argparse.ArgumentParser(
         description="Qwen-Image MPS - Generate and edit images with Qwen models on Apple Silicon",

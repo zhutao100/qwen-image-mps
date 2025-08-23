@@ -114,6 +114,10 @@ qwen-image-mps generate -p "A magical forest with elves" --batman
 
 # Combine Batman mode with ultra-fast generation
 qwen-image-mps generate -p "A serene mountain lake" --batman --ultra-fast
+
+# Specify aspect ratio (default is 16:9)
+qwen-image-mps generate -f -p "Cozy reading nook, soft morning light" --aspect 1:1
+qwen-image-mps generate -f -p "Tall cyberpunk city street, neon rain" --aspect 9:16
 ```
 
 ### Image Editing Examples:
@@ -260,7 +264,7 @@ The tool will automatically:
 
 
 ## Notes and tweaks
-- **Aspect ratio / resolution**: The script currently uses the `16:9` entry from an `aspect_ratios` map. You can change the selection in the code where `width, height` is set.
+- **Aspect ratio / resolution**: Use `--aspect` to select output size. Available choices: `1:1`, `16:9`, `9:16`, `4:3`, `3:4`, `3:2`, `2:3`. Default is `16:9`.
 - **Determinism**: Use the `--seed` parameter to control the random generator for reproducible results. On MPS, the random generator runs on CPU for improved stability.
 - **Performance**: If you hit memory or speed issues, try reducing `--steps`.
 
