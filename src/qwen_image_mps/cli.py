@@ -1,7 +1,29 @@
 import argparse
 import os
+import random
 import secrets
 from datetime import datetime
+from enum import Enum
+
+
+class GenerationStep(Enum):
+    """Enum for tracking important steps in the image generation process"""
+    INIT = "init"
+    LOADING_MODEL = "loading_model"
+    MODEL_LOADED = "model_loaded"
+    LOADING_CUSTOM_LORA = "loading_custom_lora"
+    LOADING_ULTRA_FAST_LORA = "loading_ultra_fast_lora"
+    LOADING_FAST_LORA = "loading_fast_lora"
+    LORA_LOADED = "lora_loaded"
+    BATMAN_MODE_ACTIVATED = "batman_mode_activated"
+    PREPARING_GENERATION = "preparing_generation"
+    INFERENCE_START = "inference_start"
+    INFERENCE_PROGRESS = "inference_progress"
+    INFERENCE_COMPLETE = "inference_complete"
+    SAVING_IMAGE = "saving_image"
+    IMAGE_SAVED = "image_saved"
+    COMPLETE = "complete"
+    ERROR = "error"
 
 
 def build_generate_parser(subparsers) -> argparse.ArgumentParser:
@@ -468,142 +490,189 @@ def create_generator(device, seed):
     return torch.Generator(device=generator_device).manual_seed(seed)
 
 
-def generate_image(args) -> None:
+def generate_image(args):
     from diffusers import DiffusionPipeline
 
-    model_name = "Qwen/Qwen-Image"
-    device, torch_dtype = get_device_and_dtype()
+    # Get the event callback if provided
+    event_callback = getattr(args, 'event_callback', None)
+    
+    # Helper function to yield events directly
+    def emit_event(step: GenerationStep):
+        if event_callback:
+            try:
+                event_callback(step)
+            except Exception as e:
+                print(f"Warning: Event callback error: {e}")
+        # Always yield the step for generator consumers
+        return step
 
-    pipe = DiffusionPipeline.from_pretrained(model_name, torch_dtype=torch_dtype)
-    pipe = pipe.to(device)
+    try:
+        yield emit_event(GenerationStep.INIT)
 
-    # Apply custom LoRA if specified
-    if args.lora:
-        print(f"Loading custom LoRA: {args.lora}")
-        custom_lora_path = get_custom_lora_path(args.lora)
-        if custom_lora_path:
-            pipe = merge_lora_from_safetensors(pipe, custom_lora_path)
+        model_name = "Qwen/Qwen-Image"
+        device, torch_dtype = get_device_and_dtype()
+
+        yield emit_event(GenerationStep.LOADING_MODEL)
+        pipe = DiffusionPipeline.from_pretrained(model_name, torch_dtype=torch_dtype)
+        pipe = pipe.to(device)
+        yield emit_event(GenerationStep.MODEL_LOADED)
+
+        # Apply custom LoRA if specified
+        if args.lora:
+            yield emit_event(GenerationStep.LOADING_CUSTOM_LORA)
+            print(f"Loading custom LoRA: {args.lora}")
+            custom_lora_path = get_custom_lora_path(args.lora)
+            if custom_lora_path:
+                pipe = merge_lora_from_safetensors(pipe, custom_lora_path)
+                yield emit_event(GenerationStep.LORA_LOADED)
+            else:
+                print("Warning: Could not load custom LoRA, continuing without it...")
+
+        # Apply Lightning LoRA if fast or ultra-fast mode is enabled
+        if args.ultra_fast:
+            yield emit_event(GenerationStep.LOADING_ULTRA_FAST_LORA)
+            print("Loading Lightning LoRA v1.0 for ultra-fast generation...")
+            lora_path = get_lora_path(ultra_fast=True)
+            if lora_path:
+                pipe = merge_lora_from_safetensors(pipe, lora_path)
+                # Use fixed 4 steps for Ultra Lightning mode
+                num_steps = 4
+                cfg_scale = 1.0
+                yield emit_event(GenerationStep.LORA_LOADED)
+                print(f"Ultra-fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
+            else:
+                print("Warning: Could not load Lightning LoRA v1.0")
+                print("Falling back to normal generation...")
+                num_steps = args.steps
+                cfg_scale = 4.0
+        elif args.fast:
+            yield emit_event(GenerationStep.LOADING_FAST_LORA)
+            print("Loading Lightning LoRA v1.1 for fast generation...")
+            lora_path = get_lora_path(ultra_fast=False)
+            if lora_path:
+                pipe = merge_lora_from_safetensors(pipe, lora_path)
+                # Use fixed 8 steps for Lightning mode
+                num_steps = 8
+                cfg_scale = 1.0
+                yield emit_event(GenerationStep.LORA_LOADED)
+                print(f"Fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
+            else:
+                print("Warning: Could not load Lightning LoRA v1.1")
+                print("Falling back to normal generation...")
+                num_steps = args.steps
+                cfg_scale = 4.0
         else:
-            print("Warning: Could not load custom LoRA, continuing without it...")
-
-    # Apply Lightning LoRA if fast or ultra-fast mode is enabled
-    if args.ultra_fast:
-        print("Loading Lightning LoRA v1.0 for ultra-fast generation...")
-        lora_path = get_lora_path(ultra_fast=True)
-        if lora_path:
-            pipe = merge_lora_from_safetensors(pipe, lora_path)
-            # Use fixed 4 steps for Ultra Lightning mode
-            num_steps = 4
-            cfg_scale = 1.0
-            print(f"Ultra-fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
-        else:
-            print("Warning: Could not load Lightning LoRA v1.0")
-            print("Falling back to normal generation...")
             num_steps = args.steps
             cfg_scale = 4.0
-    elif args.fast:
-        print("Loading Lightning LoRA v1.1 for fast generation...")
-        lora_path = get_lora_path(ultra_fast=False)
-        if lora_path:
-            pipe = merge_lora_from_safetensors(pipe, lora_path)
-            # Use fixed 8 steps for Lightning mode
-            num_steps = 8
-            cfg_scale = 1.0
-            print(f"Fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
-        else:
-            print("Warning: Could not load Lightning LoRA v1.1")
-            print("Falling back to normal generation...")
-            num_steps = args.steps
-            cfg_scale = 4.0
-    else:
-        num_steps = args.steps
-        cfg_scale = 4.0
 
-    # LEGO Batman photobomb mode!
-    if args.batman:
-        import random
-
-        batman_additions = [
-            ", with a tiny LEGO Batman minifigure photobombing in the corner doing a dramatic cape pose",
-            ", featuring a small LEGO Batman minifigure sneaking into the frame from the side",
-            ", and a miniature LEGO Batman figure peeking from behind something",
-            ", with a tiny LEGO Batman minifigure in the background striking a heroic pose",
-            ", including a small LEGO Batman figure hanging upside down from the top of the frame",
-            ", with a tiny LEGO Batman minifigure doing the Batusi dance in the corner",
-            ", and a small LEGO Batman figure photobombing with jazz hands",
-            ", featuring a miniature LEGO Batman popping up from the bottom like 'I'm Batman!'",
-            ", with a tiny LEGO Batman minifigure sliding into frame on a grappling hook",
-            ", and a small LEGO Batman figure in the distance shouting 'WHERE ARE THEY?!'",
-        ]
-        print("\n🦇 BATMAN MODE ACTIVATED: Adding surprise LEGO Batman photobomb!")
-
-    negative_prompt = (
-        " "  # using an empty string if you do not have specific concept to remove
-    )
-
-    aspect_ratios = {
-        "1:1": (1328, 1328),
-        "16:9": (1664, 928),
-        "9:16": (928, 1664),
-        "4:3": (1472, 1140),
-        "3:4": (1140, 1472),
-        "3:2": (1584, 1056),
-        "2:3": (1056, 1584),
-    }
-
-    width, height = aspect_ratios["16:9"]
-
-    # Ensure we generate at least one image
-    num_images = max(1, int(args.num_images))
-
-    # Shared timestamp for this generation batch
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-
-    saved_paths = []
-
-    for image_index in range(num_images):
-        if args.seed is not None:
-            # Deterministic: increment seed per image starting from the provided seed
-            per_image_seed = int(args.seed) + image_index
-        else:
-            # Random seed for each image when no seed is provided
-            # Use 63-bit to keep it positive and well within torch's expected range
-            per_image_seed = secrets.randbits(63)
-
-        # Choose a random Batman prompt for each image when in Batman mode
-        current_prompt = args.prompt
+        # LEGO Batman photobomb mode!
         if args.batman:
-            batman_action = random.choice(batman_additions)
-            current_prompt = current_prompt + batman_action
-            if num_images > 1:
-                print(
-                    f"  Image {image_index + 1}: Using Batman variant - {batman_action[2:50]}..."
-                )
+            yield emit_event(GenerationStep.BATMAN_MODE_ACTIVATED)
 
-        generator = create_generator(device, per_image_seed)
-        image = pipe(
-            prompt=current_prompt,
-            negative_prompt=negative_prompt,
-            width=width,
-            height=height,
-            num_inference_steps=num_steps,
-            true_cfg_scale=cfg_scale,
-            generator=generator,
-        ).images[0]
+            batman_additions = [
+                ", with a tiny LEGO Batman minifigure photobombing in the corner doing a dramatic cape pose",
+                ", featuring a small LEGO Batman minifigure sneaking into the frame from the side",
+                ", and a miniature LEGO Batman figure peeking from behind something",
+                ", with a tiny LEGO Batman minifigure in the background striking a heroic pose",
+                ", including a small LEGO Batman figure hanging upside down from the top of the frame",
+                ", with a tiny LEGO Batman minifigure doing the Batusi dance in the corner",
+                ", and a small LEGO Batman figure photobombing with jazz hands",
+                ", featuring a miniature LEGO Batman popping up from the bottom like 'I'm Batman!'",
+                ", with a tiny LEGO Batman minifigure sliding into frame on a grappling hook",
+                ", and a small LEGO Batman figure in the distance shouting 'WHERE ARE THEY?!'",
+            ]
+            print("\n🦇 BATMAN MODE ACTIVATED: Adding surprise LEGO Batman photobomb!")
 
-        # Save with timestamp to avoid overwriting previous generations
-        suffix = f"-{image_index+1}" if num_images > 1 else ""
-        output_filename = f"image-{timestamp}{suffix}.png"
-        image.save(output_filename)
-        saved_paths.append(os.path.abspath(output_filename))
+        yield emit_event(GenerationStep.PREPARING_GENERATION)
 
-    # Print full path(s) of saved image(s)
-    if len(saved_paths) == 1:
-        print(f"\nImage saved to: {saved_paths[0]}")
-    else:
-        print("\nImages saved:")
-        for path in saved_paths:
-            print(f"- {path}")
+        negative_prompt = (
+            " "  # using an empty string if you do not have specific concept to remove
+        )
+
+        aspect_ratios = {
+            "1:1": (1328, 1328),
+            "16:9": (1664, 928),
+            "9:16": (928, 1664),
+            "4:3": (1472, 1140),
+            "3:4": (1140, 1472),
+            "3:2": (1584, 1056),
+            "2:3": (1056, 1584),
+        }
+
+        width, height = aspect_ratios["16:9"]
+
+        # Ensure we generate at least one image
+        num_images = max(1, int(args.num_images))
+
+        # Shared timestamp for this generation batch
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+
+        saved_paths = []
+
+        for image_index in range(num_images):
+            if args.seed is not None:
+                # Deterministic: increment seed per image starting from the provided seed
+                per_image_seed = int(args.seed) + image_index
+            else:
+                # Random seed for each image when no seed is provided
+                # Use 63-bit to keep it positive and well within torch's expected range
+                per_image_seed = secrets.randbits(63)
+
+            # Choose a random Batman prompt for each image when in Batman mode
+            current_prompt = args.prompt
+            if args.batman:
+                batman_action = random.choice(batman_additions)
+                current_prompt = current_prompt + batman_action
+                if num_images > 1:
+                    print(
+                        f"  Image {image_index + 1}: Using Batman variant - {batman_action[2:50]}..."
+                    )
+
+            generator = create_generator(device, per_image_seed)
+            
+            yield emit_event(GenerationStep.INFERENCE_START)
+            image = pipe(
+                prompt=current_prompt,
+                negative_prompt=negative_prompt,
+                width=width,
+                height=height,
+                num_inference_steps=num_steps,
+                true_cfg_scale=cfg_scale,
+                generator=generator,
+            ).images[0]
+            yield emit_event(GenerationStep.INFERENCE_COMPLETE)
+
+            # Save with timestamp to avoid overwriting previous generations
+            yield emit_event(GenerationStep.SAVING_IMAGE)
+            suffix = f"-{image_index+1}" if num_images > 1 else ""
+            
+            # Check if we have custom output path from args
+            if hasattr(args, 'output_path') and args.output_path:
+                output_filename = args.output_path
+            else:
+                output_filename = f"image-{timestamp}{suffix}.png"
+                
+            image.save(output_filename)
+            saved_paths.append(os.path.abspath(output_filename))
+            yield emit_event(GenerationStep.IMAGE_SAVED)
+
+        # Print full path(s) of saved image(s)
+        if len(saved_paths) == 1:
+            print(f"\nImage saved to: {saved_paths[0]}")
+        else:
+            print("\nImages saved:")
+            for path in saved_paths:
+                print(f"- {path}")
+        
+        yield emit_event(GenerationStep.COMPLETE)
+        
+        # Yield the final result so pipeline can catch it
+        yield saved_paths
+    
+    except Exception as e:
+        yield emit_event(GenerationStep.ERROR)
+        print(f"Error during image generation: {e}")
+        raise
 
 
 def edit_image(args) -> None:
@@ -754,7 +823,8 @@ def main() -> None:
 
     # Handle the command
     if args.command == "generate":
-        generate_image(args)
+        # Consume the generator to execute the image generation
+        list(generate_image(args))
     elif args.command == "edit":
         edit_image(args)
     else:
@@ -771,7 +841,8 @@ def main() -> None:
             # Parse as generate command for backward compatibility
             sys.argv.insert(1, "generate")
             args = parser.parse_args()
-            generate_image(args)
+            # Consume the generator to execute the image generation
+            list(generate_image(args))
         else:
             parser.print_help()
 
