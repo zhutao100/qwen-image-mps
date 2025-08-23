@@ -8,6 +8,7 @@ from enum import Enum
 
 class GenerationStep(Enum):
     """Enum for tracking important steps in the image generation process"""
+
     INIT = "init"
     LOADING_MODEL = "loading_model"
     MODEL_LOADED = "model_loaded"
@@ -501,8 +502,8 @@ def generate_image(args):
     from diffusers import DiffusionPipeline
 
     # Get the event callback if provided
-    event_callback = getattr(args, 'event_callback', None)
-    
+    event_callback = getattr(args, "event_callback", None)
+
     # Helper function to yield events directly
     def emit_event(step: GenerationStep):
         if event_callback:
@@ -546,7 +547,9 @@ def generate_image(args):
                 num_steps = 4
                 cfg_scale = 1.0
                 yield emit_event(GenerationStep.LORA_LOADED)
-                print(f"Ultra-fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
+                print(
+                    f"Ultra-fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}"
+                )
             else:
                 print("Warning: Could not load Lightning LoRA v1.0")
                 print("Falling back to normal generation...")
@@ -636,7 +639,7 @@ def generate_image(args):
                     )
 
             generator = create_generator(device, per_image_seed)
-            
+
             yield emit_event(GenerationStep.INFERENCE_START)
             image = pipe(
                 prompt=current_prompt,
@@ -652,13 +655,13 @@ def generate_image(args):
             # Save with timestamp to avoid overwriting previous generations
             yield emit_event(GenerationStep.SAVING_IMAGE)
             suffix = f"-{image_index+1}" if num_images > 1 else ""
-            
+
             # Check if we have custom output path from args
-            if hasattr(args, 'output_path') and args.output_path:
+            if hasattr(args, "output_path") and args.output_path:
                 output_filename = args.output_path
             else:
                 output_filename = f"image-{timestamp}{suffix}.png"
-                
+
             image.save(output_filename)
             saved_paths.append(os.path.abspath(output_filename))
             yield emit_event(GenerationStep.IMAGE_SAVED)
@@ -670,12 +673,12 @@ def generate_image(args):
             print("\nImages saved:")
             for path in saved_paths:
                 print(f"- {path}")
-        
+
         yield emit_event(GenerationStep.COMPLETE)
-        
+
         # Yield the final result so pipeline can catch it
         yield saved_paths
-    
+
     except Exception as e:
         yield emit_event(GenerationStep.ERROR)
         print(f"Error during image generation: {e}")
