@@ -31,7 +31,8 @@ class TestGenerateImageIntegration:
             batman=True,
             ultra_fast=True,
             fast=False,
-            output_path="image-test-compatibility.png"
+            output_path="image-test-compatibility.png",
+            aspect="16:9"
         )
         
         # Save to project root instead of temp directory
@@ -66,7 +67,8 @@ class TestGenerateImageIntegration:
             batman=True,
             ultra_fast=True,
             fast=False,
-            output_path="image-test-output.png"
+            output_path="image-test-output.png",
+            aspect="16:9"
         )
         
         # Save to project root instead of temp directory
@@ -126,7 +128,8 @@ class TestGenerateImageIntegration:
             lora=None,
             batman=True,
             ultra_fast=True,
-            fast=False
+            fast=False,
+            aspect="16:9"
             # Note: No output_path for multiple images - will use auto-generated names
         )
         
