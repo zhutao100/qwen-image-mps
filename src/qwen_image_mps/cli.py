@@ -95,7 +95,7 @@ def build_generate_parser(subparsers) -> argparse.ArgumentParser:
     return parser
 
 
-def get_lora_path(ultra_fast=False):
+def get_lora_path(ultra_fast=False, edit_mode=False):
     from huggingface_hub import hf_hub_download
 
     """Get the Lightning LoRA from Hugging Face Hub with a silent cache freshness check.
@@ -107,11 +107,15 @@ def get_lora_path(ultra_fast=False):
     - Return the final resolved local path.
     """
 
-    if ultra_fast:
+    if edit_mode:
+        # Use the new Edit Lightning LoRA for editing
+        filename = "Qwen-Image-Edit-Lightning-8steps-V1.0-bf16.safetensors"
+        version = "Edit v1.0 (8-steps)"
+    elif ultra_fast:
         filename = "Qwen-Image-Lightning-4steps-V1.0-bf16.safetensors"
         version = "v1.0 (4-steps)"
     else:
-        filename = "Qwen-Image-Lightning-8steps-V1.1.safetensors"
+        filename = "Qwen-Image-Lightning-8steps-V1.1-bf16.safetensors"
         version = "v1.1 (8-steps)"
 
     try:
@@ -726,17 +730,17 @@ def edit_image(args) -> None:
             num_steps = args.steps
             cfg_scale = 4.0
     elif args.fast:
-        print("Loading Lightning LoRA v1.1 for fast editing...")
-        lora_path = get_lora_path(ultra_fast=False)
+        print("Loading Lightning Edit LoRA v1.0 for fast editing...")
+        lora_path = get_lora_path(edit_mode=True)
         if lora_path:
             # Use manual LoRA merging for edit pipeline
             pipeline = merge_lora_from_safetensors(pipeline, lora_path)
-            # Use fixed 8 steps for Lightning mode
+            # Use fixed 8 steps for Lightning Edit mode
             num_steps = 8
             cfg_scale = 1.0
-            print(f"Fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
+            print(f"Fast edit mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
         else:
-            print("Warning: Could not load Lightning LoRA v1.1")
+            print("Warning: Could not load Lightning Edit LoRA v1.0")
             print("Falling back to normal editing...")
             num_steps = args.steps
             cfg_scale = 4.0

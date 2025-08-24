@@ -13,7 +13,7 @@ import pytest
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from qwen_image_mps.cli import generate_image, GenerationStep
+from qwen_image_mps.cli import GenerationStep, generate_image
 
 
 @pytest.mark.slow
