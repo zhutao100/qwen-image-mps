@@ -298,6 +298,29 @@ The project uses:
 - `ruff` for linting
 - Pre-commit hooks for code quality
 
+### Running Tests
+
+The project includes integration tests that verify the image generation functionality:
+
+```bash
+# Run all tests
+pytest tests/
+
+# Run only fast tests (skip integration tests)
+pytest -m "not slow"
+
+# Run integration tests (generates real images with minimal steps)
+pytest -m slow -v
+
+# Run a specific test with verbose output and print statements
+pytest tests/integration/test_generate_function.py::TestGenerateImageIntegration::test_generator_yields_expected_steps -v -s
+
+# Run a specific test class
+pytest tests/integration/test_generate_function.py::TestGenerateImageIntegration -v
+```
+
+Integration tests generate actual images in your project directory using ultra-fast mode (4 steps) to minimize execution time while ensuring the pipeline works correctly. Use `-v` for verbose output and `-s` to see print statements during test execution.
+
 ## Repository contents
 - `src/qwen_image_mps/`: Main package source code
 - `qwen-image-mps.py`: Script wrapper for direct URL execution

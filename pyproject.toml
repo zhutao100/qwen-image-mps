@@ -24,6 +24,7 @@ dependencies = [
     "safetensors>=0.4.0",
     "huggingface-hub>=0.20.0",
     "Pillow>=9.0.0",
+    "pytest>=8.4.1",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -82,4 +83,9 @@ select = [
 ]
 ignore = [
     "E501",  # line too long, handled by black
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]
