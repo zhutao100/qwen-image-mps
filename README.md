@@ -109,6 +109,10 @@ qwen-image-mps generate -p "A magical forest" --lora flymy-ai/qwen-image-anime-i
 # Generate with custom LoRA and fast mode combined
 qwen-image-mps generate -p "A futuristic city" --lora your-username/your-lora-model --fast
 
+# Use a negative prompt to discourage artifacts
+qwen-image-mps generate -p "Portrait photo" --negative-prompt "blurry, watermark, text, low quality"
+qwen-image-mps generate -p "Portrait photo" -np "blurry, watermark, text, low quality"
+
 # Batman mode: LEGO Batman photobombs your image!
 qwen-image-mps generate -p "A magical forest with elves" --batman
 
@@ -146,6 +150,9 @@ qwen-image-mps edit -i photo.jpg -p "Make it anime style" --lora flymy-ai/qwen-i
 # Edit with custom LoRA and ultra-fast mode combined
 qwen-image-mps edit -i landscape.jpg -p "Add cyberpunk elements" --lora your-username/your-lora-model --ultra-fast
 
+# Use a negative prompt during editing
+qwen-image-mps edit -i photo.jpg -p "Studio portrait" --negative-prompt "blurry, watermark, text, low quality"
+
 # Batman mode for editing: LEGO Batman photobombs your edited image!
 qwen-image-mps edit -i photo.jpg -p "Change to sunset lighting" --batman
 
@@ -159,6 +166,7 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
 
 #### Generate Command Arguments
 - `-p, --prompt` (str): Prompt text for image generation.
+- `--negative-prompt` (str): Text to discourage (negative prompt), e.g. `"blurry, watermark, text, low quality"`.
 - `-s, --steps` (int): Number of inference steps (default: 50).
 - `-f, --fast`: Enable fast mode using Lightning LoRA for 8-step generation.
 - `-uf, --ultra-fast`: Enable ultra-fast mode using Lightning LoRA v1.0 for 4-step generation.
@@ -173,6 +181,7 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
 #### Edit Command Arguments
 - `-i, --input` (str): Path to the input image to edit (required).
 - `-p, --prompt` (str): Editing instructions (required).
+- `--negative-prompt` (str): Text to discourage in the edit (negative prompt).
 - `-s, --steps` (int): Number of inference steps for normal editing (default: 50).
 - `-f, --fast`: Enable fast mode using Lightning LoRA v1.1 for 8-step editing.
 - `-uf, --ultra-fast`: Enable ultra-fast mode using Lightning LoRA v1.0 for 4-step editing.

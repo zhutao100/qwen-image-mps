@@ -41,6 +41,17 @@ def build_generate_parser(subparsers) -> argparse.ArgumentParser:
         help="Prompt text to condition the image generation.",
     )
     parser.add_argument(
+        "-np",
+        "--negative-prompt",
+        dest="negative_prompt",
+        type=str,
+        default=None,
+        help=(
+            "Text to discourage (negative prompt), e.g. 'blurry, watermark, text, low quality'. "
+            "If omitted, an empty negative prompt is used."
+        ),
+    )
+    parser.add_argument(
         "-s",
         "--steps",
         type=int,
@@ -434,6 +445,15 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
         help="Editing instructions (e.g., 'Change the sky to sunset colors').",
     )
     parser.add_argument(
+        "--negative-prompt",
+        dest="negative_prompt",
+        type=str,
+        default=None,
+        help=(
+            "Text to discourage in the edit (negative prompt). If omitted, an empty negative prompt is used."
+        ),
+    )
+    parser.add_argument(
         "-s",
         "--steps",
         type=int,
@@ -599,9 +619,9 @@ def generate_image(args):
 
         yield emit_event(GenerationStep.PREPARING_GENERATION)
 
-        negative_prompt = (
-            " "  # using an empty string if you do not have specific concept to remove
-        )
+        # Negative prompt: allow CLI override; default to empty when not provided
+        neg_from_args = getattr(args, "negative_prompt", None)
+        negative_prompt = " " if neg_from_args is None else neg_from_args
 
         aspect_ratios = {
             "1:1": (1328, 1328),
@@ -781,6 +801,11 @@ def edit_image(args) -> None:
         edit_prompt = args.prompt + batman_edit
         print("\n🦇 BATMAN MODE ACTIVATED: LEGO Batman will photobomb this edit!")
 
+    # Prepare negative prompt (allow CLI override; default to empty)
+    edit_negative_prompt = (
+        " " if getattr(args, "negative_prompt", None) is None else args.negative_prompt
+    )
+
     # Perform image editing
     print(f"Editing image with prompt: {edit_prompt}")
     print(f"Using {num_steps} inference steps...")
@@ -790,7 +815,7 @@ def edit_image(args) -> None:
         output = pipeline(
             image=image,
             prompt=edit_prompt,
-            negative_prompt=" ",
+            negative_prompt=edit_negative_prompt,
             num_inference_steps=num_steps,
             generator=generator,
             guidance_scale=cfg_scale,
@@ -813,7 +838,7 @@ def main() -> None:
         from . import __version__
     except ImportError:
         # Fallback when module is loaded without package context
-        __version__ = "0.4.3"
+        __version__ = "0.4.4"
 
     parser = argparse.ArgumentParser(
         description="Qwen-Image MPS - Generate and edit images with Qwen models on Apple Silicon",
