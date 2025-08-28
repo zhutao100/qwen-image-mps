@@ -547,6 +547,8 @@ def generate_image(args):
         yield emit_event(GenerationStep.LOADING_MODEL)
         pipe = DiffusionPipeline.from_pretrained(model_name, torch_dtype=torch_dtype)
         pipe = pipe.to(device)
+        pipe.enable_attention_slicing(slice_size=1)
+        pipe.enable_vae_slicing()
         yield emit_event(GenerationStep.MODEL_LOADED)
 
         # Apply custom LoRA if specified
@@ -642,6 +644,7 @@ def generate_image(args):
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
 
         saved_paths = []
+        saved_seeds = []
 
         for image_index in range(num_images):
             if args.seed is not None:
@@ -687,16 +690,18 @@ def generate_image(args):
                 output_filename = f"image-{timestamp}{suffix}.png"
 
             image.save(output_filename)
-            saved_paths.append(os.path.abspath(output_filename))
+            abs_path = os.path.abspath(output_filename)
+            saved_paths.append(abs_path)
+            saved_seeds.append(per_image_seed)
             yield emit_event(GenerationStep.IMAGE_SAVED)
 
         # Print full path(s) of saved image(s)
         if len(saved_paths) == 1:
-            print(f"\nImage saved to: {saved_paths[0]}")
+            print(f"\nImage saved to: {saved_paths[0]} (seed: {saved_seeds[0]})")
         else:
             print("\nImages saved:")
-            for path in saved_paths:
-                print(f"- {path}")
+            for path, seed_val in zip(saved_paths, saved_seeds):
+                print(f"- {path} (seed: {seed_val})")
 
         yield emit_event(GenerationStep.COMPLETE)
 
@@ -830,7 +835,7 @@ def edit_image(args) -> None:
         output_filename = f"edited-{timestamp}.png"
 
     edited_image.save(output_filename)
-    print(f"\nEdited image saved to: {os.path.abspath(output_filename)}")
+    print(f"\nEdited image saved to: {os.path.abspath(output_filename)} (seed: {seed})")
 
 
 def main() -> None:
@@ -838,7 +843,7 @@ def main() -> None:
         from . import __version__
     except ImportError:
         # Fallback when module is loaded without package context
-        __version__ = "0.4.4"
+        __version__ = "0.4.5"
 
     parser = argparse.ArgumentParser(
         description="Qwen-Image MPS - Generate and edit images with Qwen models on Apple Silicon",
