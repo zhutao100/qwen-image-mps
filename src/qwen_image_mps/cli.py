@@ -38,7 +38,7 @@ def build_generate_parser(subparsers) -> argparse.ArgumentParser:
         "-p",
         "--prompt",
         type=str,
-        default="""A coffee shop entrance features a chalkboard sign reading "Apple Silicon Qwen Coffee 😊 $2 per cup," with a neon light beside it displaying "Generated with MPS on Apple Silicon". Next to it hangs a poster showing a beautiful Italian woman, and beneath the poster is written "Just try it!". Ultra HD, 4K, cinematic composition""",
+        default="""A coffee shop entrance features a chalkboard sign reading "Apple Silicon Qwen Coffee 😊 $2 per cup," with a neon light beside it displaying "Generated with MPS on Apple Silicon". Next to it hangs a poster showing a beautiful woman, and beneath the poster is written "Just try it!".""",
         help="Prompt text to condition the image generation.",
     )
     parser.add_argument(
@@ -98,6 +98,13 @@ def build_generate_parser(subparsers) -> argparse.ArgumentParser:
         type=str,
         default=None,
         help="Path to local .safetensors file, Hugging Face model URL or repo ID for additional LoRA to load (e.g., '~/Downloads/lora.safetensors', 'flymy-ai/qwen-image-anime-irl-lora' or full HF URL).",
+    )
+    parser.add_argument(
+        "--outdir",
+        dest="output_dir",
+        type=str,
+        default=None,
+        help="Directory to save generated images (default: ./output).",
     )
     parser.add_argument(
         "--batman",
@@ -506,6 +513,13 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
         type=str,
         default=None,
         help="Output filename (default: edited-<timestamp>.png).",
+    )
+    parser.add_argument(
+        "--outdir",
+        dest="output_dir",
+        type=str,
+        default=None,
+        help="Directory to save edited images (default: ./output).",
     )
     parser.add_argument(
         "--lora",
@@ -1032,11 +1046,17 @@ def generate_image(args):
             yield emit_event(GenerationStep.SAVING_IMAGE)
             suffix = f"-{image_index+1}" if num_images > 1 else ""
 
+            default_output_dir = getattr(args, "output_dir", None) or "output"
+
             # Check if we have custom output path from args
             if hasattr(args, "output_path") and args.output_path:
                 output_filename = args.output_path
             else:
-                output_filename = f"image-{timestamp}{suffix}.png"
+                output_filename = os.path.join(
+                    default_output_dir, f"image-{timestamp}{suffix}.png"
+                )
+
+            os.makedirs(os.path.dirname(output_filename) or ".", exist_ok=True)
 
             image.save(output_filename)
             abs_path = os.path.abspath(output_filename)
@@ -1192,11 +1212,17 @@ def edit_image(args) -> None:
         edited_image = output.images[0]
 
     # Save the edited image
+    default_output_dir = getattr(args, "output_dir", None) or "output"
+
     if args.output:
         output_filename = args.output
+        if os.path.basename(output_filename) == output_filename:
+            output_filename = os.path.join(default_output_dir, output_filename)
     else:
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        output_filename = f"edited-{timestamp}.png"
+        output_filename = os.path.join(default_output_dir, f"edited-{timestamp}.png")
+
+    os.makedirs(os.path.dirname(output_filename) or ".", exist_ok=True)
 
     edited_image.save(output_filename)
     print(f"\nEdited image saved to: {os.path.abspath(output_filename)} (seed: {seed})")

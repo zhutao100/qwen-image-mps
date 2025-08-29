@@ -156,9 +156,9 @@ class TestGenerateImageIntegration:
             assert isinstance(final_result, list), "Final result should be a list"
             assert len(final_result) == 2, "Should have paths for 2 generated images"
 
-            # Check actual files exist
-            png_files = list(Path(".").glob("*.png"))
-            assert len(png_files) >= 2, "Should create at least 2 PNG files"
+            # Check actual files exist under default output directory
+            png_files = list(Path("output").glob("*.png"))
+            assert len(png_files) >= 2, "Should create at least 2 PNG files in output/"
 
             # Verify paths are absolute and files exist
             for path in final_result:

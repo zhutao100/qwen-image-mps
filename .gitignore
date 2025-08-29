@@ -149,3 +149,6 @@ logs/
 
 *.safetensors
 image-*.png
+
+# Output directory for generated images
+output/

@@ -9,6 +9,7 @@ Generate and edit images from text prompts using the Hugging Face Diffusers pipe
 - **Image editing**: modify existing images using text instructions
 - **Fast editing**: 8-step and 4-step editing using Lightning LoRA
 - **Timestamped outputs**: avoids overwriting previous generations
+- **Clean outputs**: saves images to `output/` by default (configurable with `--outdir`)
 - **Fast mode**: 8-step generation using Lightning LoRA (auto-downloads if needed)
 - **Ultra-fast mode**: 4-step generation using Lightning LoRA (auto-downloads if needed)
 - **Multi-image generation**: generate multiple images in one run with `--num-images`
@@ -122,6 +123,9 @@ qwen-image-mps generate -p "A serene mountain lake" --batman --ultra-fast
 # Specify aspect ratio (default is 16:9)
 qwen-image-mps generate -f -p "Cozy reading nook, soft morning light" --aspect 1:1
 qwen-image-mps generate -f -p "Tall cyberpunk city street, neon rain" --aspect 9:16
+
+# Save images into a custom directory
+qwen-image-mps generate -p "A cozy cabin in the woods" --outdir my-outputs
 ```
 
 ### Image Editing Examples:
@@ -158,6 +162,9 @@ qwen-image-mps edit -i photo.jpg -p "Change to sunset lighting" --batman
 
 # Combine Batman mode with fast editing
 qwen-image-mps edit -i portrait.jpg -p "Add dramatic shadows" --batman --fast
+
+# Save edited image into a custom directory
+qwen-image-mps edit -i photo.jpg -p "Add autumn colors" --outdir edits
 ```
 
 If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-image-mps.py` in the examples above.
@@ -177,6 +184,7 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
 - `--lora` (str): Hugging Face model URL or repo ID for additional LoRA to load
   (e.g., 'flymy-ai/qwen-image-anime-irl-lora' or full HF URL).
 - `--batman`: Add a LEGO Batman minifigure photobombing your image in unexpected ways!
+- `--outdir` (str): Directory to save generated images (default: `./output`).
 
 #### Edit Command Arguments
 - `-i, --input` (str): Path to the input image to edit (required).
@@ -187,6 +195,7 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
 - `-uf, --ultra-fast`: Enable ultra-fast mode using Lightning LoRA v1.0 for 4-step editing.
 - `--seed` (int): Random seed for reproducible generation (default: 42).
 - `-o, --output` (str): Output filename (default: edited-<timestamp>.png).
+- `--outdir` (str): Directory to save edited images (default: `./output`). If `--output` is a basename, it is saved under this directory.
 - `--lora` (str): Hugging Face model URL or repo ID for additional LoRA to load
   (e.g., 'flymy-ai/qwen-image-anime-irl-lora' or full HF URL).
 - `--batman`: Add a LEGO Batman minifigure photobombing your edited image!
@@ -201,15 +210,15 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
   - CPU: `float32`
 - Uses a light positive conditioning suffix for quality
 - Generates at a 16:9 resolution (default `1664x928`)
-- Saves the output as `image-YYYYMMDD-HHMMSS.png` for a single image,
-  or `image-YYYYMMDD-HHMMSS-1.png`, `image-YYYYMMDD-HHMMSS-2.png`, ... when using `--num-images`
+- Saves images under `output/` by default. Filenames are `image-YYYYMMDD-HHMMSS.png` for a single image,
+  or `image-YYYYMMDD-HHMMSS-1.png`, `image-YYYYMMDD-HHMMSS-2.png`, ... when using `--num-images`. Use `--outdir` to change the directory.
 - Prints the full path of the saved image
 
 ### Image Editing
 - Loads `Qwen/Qwen-Image-Edit` via `QwenImageEditPipeline` for image editing
 - Takes an existing image and editing instructions as input
 - Applies transformations while preserving the original structure
-- Saves the edited image as `edited-YYYYMMDD-HHMMSS.png` or custom filename
+- Saves the edited image under `output/` by default as `edited-YYYYMMDD-HHMMSS.png`, or to a custom filename.
 - Prints the full path of the edited image
 
 ### Fast Mode & Ultra-Fast Mode (Lightning LoRA)
@@ -328,7 +337,7 @@ pytest tests/integration/test_generate_function.py::TestGenerateImageIntegration
 pytest tests/integration/test_generate_function.py::TestGenerateImageIntegration -v
 ```
 
-Integration tests generate actual images in your project directory using ultra-fast mode (4 steps) to minimize execution time while ensuring the pipeline works correctly. Use `-v` for verbose output and `-s` to see print statements during test execution.
+Integration tests generate actual images (by default under `output/`) using ultra-fast mode (4 steps) to minimize execution time while ensuring the pipeline works correctly. Use `-v` for verbose output and `-s` to see print statements during test execution.
 
 ## Repository contents
 - `src/qwen_image_mps/`: Main package source code

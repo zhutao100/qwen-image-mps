@@ -223,15 +223,6 @@ wheels = [
 ]
 
 [[package]]
-name = "diskcache"
-version = "5.6.3"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/3f/21/1c1ffc1a039ddcc459db43cc108658f32c57d271d7289a2794e401d0fdb6/diskcache-5.6.3.tar.gz", hash = "sha256:2c3a3fa2743d8535d832ec61c2054a1641f41775aa7c556758a109941e33e4fc", size = 67916, upload_time = "2023-08-31T06:12:00.316Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/3f/27/4570e78fc0bf5ea0ca45eb1de3818a23787af9b390c0b0a0033a1b8236f9/diskcache-5.6.3-py3-none-any.whl", hash = "sha256:5e31b2d5fbad117cc363ebaf6b689474db18a1f6438bc82358b024abd4c2ca19", size = 45550, upload_time = "2023-08-31T06:11:58.822Z" },
-]
-
-[[package]]
 name = "distlib"
 version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -379,20 +370,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/df/bf/f7da0350254c0ed7c
 wheels = [
     { url = "https://files.pythonhosted.org/packages/62/a1/3d680cbfd5f4b8f15abc1d571870c5fc3e594bb582bc3b64ea099db13e56/jinja2-3.1.6-py3-none-any.whl", hash = "sha256:85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67", size = 134899, upload_time = "2025-03-05T20:05:00.369Z" },
 ]
-
-[[package]]
-name = "llama-cpp-python"
-version = "0.3.16"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "diskcache" },
-    { name = "jinja2" },
-    { name = "numpy", version = "2.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
-    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
-    { name = "numpy", version = "2.3.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/e4/b4/c8cd17629ced0b9644a71d399a91145aedef109c0333443bef015e45b704/llama_cpp_python-0.3.16.tar.gz", hash = "sha256:34ed0f9bd9431af045bb63d9324ae620ad0536653740e9bb163a2e1fcb973be6", size = 50688636, upload_time = "2025-08-15T04:58:29.212Z" }
 
 [[package]]
 name = "markupsafe"
@@ -1119,7 +1096,7 @@ wheels = [
 
 [[package]]
 name = "qwen-image-mps"
-version = "0.4.5"
+version = "0.5.0"
 source = { editable = "." }
 dependencies = [
     { name = "accelerate" },
@@ -1127,6 +1104,7 @@ dependencies = [
     { name = "gguf" },
     { name = "huggingface-hub" },
     { name = "pillow" },
+    { name = "pre-commit" },
     { name = "pytest" },
     { name = "safetensors" },
     { name = "torch" },
@@ -1141,20 +1119,17 @@ dev = [
     { name = "pre-commit" },
     { name = "ruff" },
 ]
-quantization = [
-    { name = "llama-cpp-python" },
-]
 
 [package.metadata]
 requires-dist = [
     { name = "accelerate", specifier = ">=0.25.0" },
     { name = "black", marker = "extra == 'dev'" },
     { name = "diffusers", specifier = ">=0.35.0" },
-    { name = "gguf", specifier = ">=0.6.0" },
+    { name = "gguf", specifier = ">=0.10.0" },
     { name = "huggingface-hub", specifier = ">=0.20.0" },
     { name = "isort", marker = "extra == 'dev'" },
-    { name = "llama-cpp-python", marker = "extra == 'quantization'", specifier = ">=0.2.0" },
     { name = "pillow", specifier = ">=9.0.0" },
+    { name = "pre-commit", specifier = ">=4.3.0" },
     { name = "pre-commit", marker = "extra == 'dev'" },
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "ruff", marker = "extra == 'dev'" },
@@ -1163,7 +1138,7 @@ requires-dist = [
     { name = "torchvision", specifier = ">=0.15.0" },
     { name = "transformers", specifier = ">=4.35.0" },
 ]
-provides-extras = ["dev", "quantization"]
+provides-extras = ["dev"]
 
 [[package]]
 name = "regex"

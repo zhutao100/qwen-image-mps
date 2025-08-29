@@ -7,7 +7,7 @@ allow-direct-references = true
 
 [project]
 name = "qwen-image-mps"
-version = "0.4.5"
+version = "0.5.0"
 description = "Generate images with Qwen-Image on Apple Silicon (MPS) and other devices"
 readme = "README.md"
 license = "MIT"
@@ -24,8 +24,7 @@ dependencies = [
     "safetensors>=0.4.0",
     "huggingface-hub>=0.20.0",
     "Pillow>=9.0.0",
-    "pytest>=8.4.1",
-    "gguf>=0.6.0",
+    "gguf>=0.10.0",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -47,6 +46,7 @@ dev = [
     "isort",
     "ruff",
     "pre-commit",
+    "pytest>=8.4.1",
 ]
 
 [project.urls]
