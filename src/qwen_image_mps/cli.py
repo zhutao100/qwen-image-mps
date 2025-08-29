@@ -4,6 +4,7 @@ import random
 import secrets
 from datetime import datetime
 from enum import Enum
+from typing import Optional
 
 
 class GenerationStep(Enum):
@@ -102,6 +103,27 @@ def build_generate_parser(subparsers) -> argparse.ArgumentParser:
         "--batman",
         action="store_true",
         help="LEGO Batman photobombs your image! 🦇",
+    )
+    parser.add_argument(
+        "--quantization",
+        type=str,
+        default=None,
+        choices=[
+            "Q2_K",
+            "Q3_K_S",
+            "Q3_K_M",
+            "Q4_0",
+            "Q4_1",
+            "Q4_K_S",
+            "Q4_K_M",
+            "Q5_0",
+            "Q5_1",
+            "Q5_K_S",
+            "Q5_K_M",
+            "Q6_K",
+            "Q8_0",
+        ],
+        help="Use GGUF quantized model (e.g., Q4_0 for ~3x memory reduction). Default uses standard model.",
     )
     return parser
 
@@ -496,6 +518,27 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
         action="store_true",
         help="LEGO Batman photobombs your image! 🦇",
     )
+    parser.add_argument(
+        "--quantization",
+        type=str,
+        default=None,
+        choices=[
+            "Q2_K",
+            "Q3_K_S",
+            "Q3_K_M",
+            "Q4_0",
+            "Q4_1",
+            "Q4_K_S",
+            "Q4_K_M",
+            "Q5_0",
+            "Q5_1",
+            "Q5_K_S",
+            "Q5_K_M",
+            "Q6_K",
+            "Q8_0",
+        ],
+        help="Use GGUF quantized model (e.g., Q4_0 for ~3x memory reduction). Default uses standard model.",
+    )
     return parser
 
 
@@ -512,6 +555,260 @@ def get_device_and_dtype():
     else:
         print("Using CPU")
         return "cpu", torch.float32
+
+
+def get_gguf_model_path(quantization: str):
+    """Download and return path to GGUF quantized model.
+
+    Args:
+        quantization: Quantization level (e.g., 'Q4_0', 'Q8_0')
+
+    Returns:
+        Path to the downloaded GGUF file
+    """
+    from huggingface_hub import hf_hub_download
+
+    # Map quantization levels to filenames (lowercase 'qwen-image')
+    gguf_files = {
+        "Q2_K": "qwen-image-Q2_K.gguf",
+        "Q3_K_S": "qwen-image-Q3_K_S.gguf",
+        "Q3_K_M": "qwen-image-Q3_K_M.gguf",
+        "Q4_0": "qwen-image-Q4_0.gguf",
+        "Q4_1": "qwen-image-Q4_1.gguf",
+        "Q4_K_S": "qwen-image-Q4_K_S.gguf",
+        "Q4_K_M": "qwen-image-Q4_K_M.gguf",
+        "Q5_0": "qwen-image-Q5_0.gguf",
+        "Q5_1": "qwen-image-Q5_1.gguf",
+        "Q5_K_S": "qwen-image-Q5_K_S.gguf",
+        "Q5_K_M": "qwen-image-Q5_K_M.gguf",
+        "Q6_K": "qwen-image-Q6_K.gguf",
+        "Q8_0": "qwen-image-Q8_0.gguf",
+    }
+
+    if quantization not in gguf_files:
+        raise ValueError(f"Unsupported quantization level: {quantization}")
+
+    filename = gguf_files[quantization]
+    print(f"Downloading GGUF model with {quantization} quantization...")
+
+    try:
+        gguf_path = hf_hub_download(
+            repo_id="city96/Qwen-Image-gguf",
+            filename=filename,
+            repo_type="model",
+        )
+        print(f"GGUF model downloaded: {gguf_path}")
+        return gguf_path
+    except Exception as e:
+        print(f"Failed to download GGUF model: {e}")
+        return None
+
+
+def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
+    """Load a GGUF quantized model pipeline.
+
+    Args:
+        quantization: Quantization level (e.g., 'Q4_0')
+        device: Device to load model on
+        torch_dtype: Data type for computation
+        edit_mode: Whether to load edit pipeline
+
+    Returns:
+        Loaded pipeline or None if failed
+
+    Note:
+        Currently only quantizes the transformer/diffusion model (main component).
+        Text encoder (Qwen2.5-VL-7B, ~16.6GB) and VAE remain at full precision.
+
+        Text encoder quantization is not yet supported because:
+        - The text encoder is a full Qwen2.5-VL model, not a simple CLIP model
+        - GGUF files from unsloth are for the full VLM, not optimized for diffusion use
+        - Diffusers doesn't yet support loading GGUF text encoders via from_single_file
+
+        Future versions may support quantized text encoders for additional memory savings.
+    """
+    import torch
+
+    try:
+        from diffusers import GGUFQuantizationConfig
+    except ImportError:
+        print(
+            "Error: GGUFQuantizationConfig not found. Please update diffusers to version >=0.35.0"
+        )
+        return None
+
+    # Get GGUF model path
+    gguf_path = get_gguf_model_path(quantization)
+    if not gguf_path:
+        return None
+
+    # Create quantization config
+    quantization_config = GGUFQuantizationConfig(compute_dtype=torch_dtype)
+
+    if edit_mode:
+        print("Note: GGUF quantized models for editing are not yet supported.")
+        print("The GGUF models from city96 are for the base Qwen-Image model only.")
+        return None
+    else:
+        # Load GGUF model for generation
+        from diffusers import DiffusionPipeline
+
+        print(f"Loading GGUF quantized model ({quantization})...")
+        print(f"Memory usage will be approximately {get_model_size(quantization)}")
+
+        try:
+            # Try to load using the QwenImageTransformer2DModel class
+            from diffusers.models import QwenImageTransformer2DModel
+
+            print("Loading transformer from GGUF file...")
+            # Need to provide the config from the original model
+            transformer = QwenImageTransformer2DModel.from_single_file(
+                gguf_path,
+                quantization_config=quantization_config,
+                torch_dtype=torch_dtype,
+                config="Qwen/Qwen-Image",  # Use config from the original model
+                subfolder="transformer",  # Specify the transformer subfolder
+            )
+
+            print("Creating pipeline with quantized transformer...")
+
+            # Create pipeline with quantized transformer
+            pipeline = DiffusionPipeline.from_pretrained(
+                "Qwen/Qwen-Image",
+                transformer=transformer,
+                torch_dtype=torch_dtype,
+            )
+
+            pipeline = pipeline.to(device)
+
+            # Enable memory optimizations
+            # pipeline.enable_attention_slicing(slice_size=1)
+            # pipeline.enable_vae_slicing()
+
+            print(f"Successfully loaded GGUF model with {quantization} quantization")
+            return pipeline
+
+        except (ImportError, AttributeError) as e:
+            print(f"Error: Could not import QwenImageTransformer2DModel: {e}")
+            print(
+                "This might be because your diffusers version doesn't support GGUF for Qwen-Image yet."
+            )
+            return None
+        except Exception as e:
+            print(f"Error loading GGUF model: {e}")
+            print(
+                "The GGUF file format might not be compatible with the current diffusers implementation."
+            )
+            return None
+
+
+def load_quantized_text_encoder(quantization: str, device, torch_dtype):
+    """Load a quantized text encoder using transformers native quantization.
+
+    Args:
+        quantization: Quantization level (e.g., '4bit', '8bit')
+        device: Device to load on
+        torch_dtype: Data type
+
+    Returns:
+        Quantized text encoder or None
+    """
+    # For now, we'll use transformers' built-in quantization
+    # Future: Could implement GGUF loading when proper text encoder GGUF files are available
+
+    try:
+        import torch
+        from transformers import AutoModelForCausalLM, BitsAndBytesConfig
+
+        if quantization == "4bit":
+            # 4-bit quantization using bitsandbytes
+            bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=torch_dtype,
+                bnb_4bit_use_double_quant=True,
+            )
+        elif quantization == "8bit":
+            # 8-bit quantization
+            bnb_config = BitsAndBytesConfig(
+                load_in_8bit=True,
+            )
+        else:
+            print(f"Unsupported quantization type: {quantization}")
+            return None
+
+        print(f"Loading text encoder with {quantization} quantization...")
+        # Note: This would need the actual text encoder model path
+        # For now, return None as we need proper implementation
+        return None
+
+    except ImportError:
+        print("bitsandbytes is required for text encoder quantization")
+        print("Install with: pip install bitsandbytes")
+        return None
+
+
+def get_text_encoder_gguf_path(quantization: str):
+    """Placeholder for future text encoder GGUF support.
+
+    Args:
+        quantization: Quantization level (e.g., 'Q4_0', 'Q8_0')
+
+    Returns:
+        Path to text encoder GGUF file or None
+
+    Note:
+        Text encoder GGUF files from unsloth/Qwen2.5-VL-7B-Instruct-GGUF exist but:
+        - They are full VLM models (7B params), not optimized for diffusion pipelines
+        - Diffusers doesn't support loading them as text encoders yet
+        - Would require custom integration similar to ComfyUI-GGUF's approach
+
+        ComfyUI-GGUF shows it's possible with their T5/CLIP loaders:
+        - They use custom GGMLOps for quantized operations
+        - Implement GGUFModelPatcher for memory management
+        - Support dynamic dequantization during forward pass
+
+        When implemented, this could provide additional memory savings:
+        - Q4_0: ~4.4GB (vs 16.6GB full precision)
+        - Q8_0: ~8.1GB (vs 16.6GB full precision)
+        - Total with both quantized: ~18GB (vs ~60GB full precision)
+    """
+    # TODO: Implement when diffusers supports GGUF text encoders
+    # Potential implementation approach (based on ComfyUI-GGUF):
+    # 1. Download from unsloth/Qwen2.5-VL-7B-Instruct-GGUF
+    # 2. Create custom QwenTextEncoderGGUF class with GGMLOps
+    # 3. Implement dequantization logic for forward pass
+    # 4. Integrate with pipeline using custom text encoder
+    #
+    # Example future usage:
+    # text_encoder_gguf = load_qwen_text_encoder_gguf(quantization)
+    # pipeline = DiffusionPipeline.from_pretrained(
+    #     "Qwen/Qwen-Image",
+    #     text_encoder=text_encoder_gguf,
+    #     transformer=transformer_gguf,
+    #     ...
+    # )
+    return None
+
+
+def get_model_size(quantization: str) -> str:
+    """Get approximate model size for a quantization level."""
+    sizes = {
+        "Q2_K": "7.06 GB",
+        "Q3_K_S": "8.95 GB",
+        "Q3_K_M": "9.68 GB",
+        "Q4_0": "11.9 GB",
+        "Q4_1": "12.8 GB",
+        "Q4_K_S": "12.1 GB",
+        "Q4_K_M": "13.1 GB",
+        "Q5_0": "14.4 GB",
+        "Q5_1": "15.4 GB",
+        "Q5_K_S": "14.1 GB",
+        "Q5_K_M": "14.9 GB",
+        "Q6_K": "16.8 GB",
+        "Q8_0": "21.8 GB",
+    }
+    return sizes.get(quantization, "Unknown")
 
 
 def create_generator(device, seed):
@@ -545,58 +842,110 @@ def generate_image(args):
         device, torch_dtype = get_device_and_dtype()
 
         yield emit_event(GenerationStep.LOADING_MODEL)
-        pipe = DiffusionPipeline.from_pretrained(model_name, torch_dtype=torch_dtype)
-        pipe = pipe.to(device)
-        pipe.enable_attention_slicing(slice_size=1)
-        pipe.enable_vae_slicing()
+
+        # Check if quantization is requested
+        quantization = getattr(args, "quantization", None)
+
+        if quantization:
+            # Load GGUF quantized model
+            pipe = load_gguf_pipeline(
+                quantization, device, torch_dtype, edit_mode=False
+            )
+            if pipe is None:
+                print("Failed to load GGUF model, falling back to standard model...")
+                pipe = DiffusionPipeline.from_pretrained(
+                    model_name, torch_dtype=torch_dtype
+                )
+                pipe = pipe.to(device)
+        else:
+            # Load standard model
+            pipe = DiffusionPipeline.from_pretrained(
+                model_name, torch_dtype=torch_dtype
+            )
+            pipe = pipe.to(device)
+
+        # pipe.enable_attention_slicing(slice_size=1)
+        # pipe.enable_vae_slicing()
         yield emit_event(GenerationStep.MODEL_LOADED)
 
-        # Apply custom LoRA if specified
-        if args.lora:
-            yield emit_event(GenerationStep.LOADING_CUSTOM_LORA)
-            print(f"Loading custom LoRA: {args.lora}")
-            custom_lora_path = get_custom_lora_path(args.lora)
-            if custom_lora_path:
-                pipe = merge_lora_from_safetensors(pipe, custom_lora_path)
-                yield emit_event(GenerationStep.LORA_LOADED)
-            else:
-                print("Warning: Could not load custom LoRA, continuing without it...")
+        # Check if using GGUF model
+        using_gguf = quantization is not None
 
-        # Apply Lightning LoRA if fast or ultra-fast mode is enabled
-        if args.ultra_fast:
-            yield emit_event(GenerationStep.LOADING_ULTRA_FAST_LORA)
-            print("Loading Lightning LoRA v1.0 for ultra-fast generation...")
-            lora_path = get_lora_path(ultra_fast=True)
-            if lora_path:
-                pipe = merge_lora_from_safetensors(pipe, lora_path)
-                # Use fixed 4 steps for Ultra Lightning mode
-                num_steps = 4
-                cfg_scale = 1.0
-                yield emit_event(GenerationStep.LORA_LOADED)
+        # Apply custom LoRA if specified (skip if using GGUF due to incompatibility)
+        if args.lora:
+            if using_gguf:
                 print(
-                    f"Ultra-fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}"
+                    "Warning: LoRA loading is not supported with GGUF quantized models."
                 )
+                print(
+                    "The internal structure of GGUF models differs from standard models."
+                )
+                print("Continuing without LoRA...")
             else:
-                print("Warning: Could not load Lightning LoRA v1.0")
-                print("Falling back to normal generation...")
-                num_steps = args.steps
-                cfg_scale = 4.0
-        elif args.fast:
-            yield emit_event(GenerationStep.LOADING_FAST_LORA)
-            print("Loading Lightning LoRA v1.1 for fast generation...")
-            lora_path = get_lora_path(ultra_fast=False)
-            if lora_path:
-                pipe = merge_lora_from_safetensors(pipe, lora_path)
-                # Use fixed 8 steps for Lightning mode
-                num_steps = 8
+                yield emit_event(GenerationStep.LOADING_CUSTOM_LORA)
+                print(f"Loading custom LoRA: {args.lora}")
+                custom_lora_path = get_custom_lora_path(args.lora)
+                if custom_lora_path:
+                    pipe = merge_lora_from_safetensors(pipe, custom_lora_path)
+                    yield emit_event(GenerationStep.LORA_LOADED)
+                else:
+                    print(
+                        "Warning: Could not load custom LoRA, continuing without it..."
+                    )
+
+        # Apply Lightning LoRA if fast or ultra-fast mode is enabled (skip if using GGUF)
+        if args.ultra_fast:
+            if using_gguf:
+                print(
+                    "Warning: Lightning LoRA is not compatible with GGUF quantized models."
+                )
+                print("Using GGUF model with standard inference settings...")
+                num_steps = 4  # Still use fewer steps for speed
                 cfg_scale = 1.0
-                yield emit_event(GenerationStep.LORA_LOADED)
-                print(f"Fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
             else:
-                print("Warning: Could not load Lightning LoRA v1.1")
-                print("Falling back to normal generation...")
-                num_steps = args.steps
-                cfg_scale = 4.0
+                yield emit_event(GenerationStep.LOADING_ULTRA_FAST_LORA)
+                print("Loading Lightning LoRA v1.0 for ultra-fast generation...")
+                lora_path = get_lora_path(ultra_fast=True)
+                if lora_path:
+                    pipe = merge_lora_from_safetensors(pipe, lora_path)
+                    # Use fixed 4 steps for Ultra Lightning mode
+                    num_steps = 4
+                    cfg_scale = 1.0
+                    yield emit_event(GenerationStep.LORA_LOADED)
+                    print(
+                        f"Ultra-fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}"
+                    )
+                else:
+                    print("Warning: Could not load Lightning LoRA v1.0")
+                    print("Falling back to normal generation...")
+                    num_steps = args.steps
+                    cfg_scale = 4.0
+        elif args.fast:
+            if using_gguf:
+                print(
+                    "Warning: Lightning LoRA is not compatible with GGUF quantized models."
+                )
+                print("Using GGUF model with reduced steps for faster generation...")
+                num_steps = 8  # Still use fewer steps for speed
+                cfg_scale = 1.0
+            else:
+                yield emit_event(GenerationStep.LOADING_FAST_LORA)
+                print("Loading Lightning LoRA v1.1 for fast generation...")
+                lora_path = get_lora_path(ultra_fast=False)
+                if lora_path:
+                    pipe = merge_lora_from_safetensors(pipe, lora_path)
+                    # Use fixed 8 steps for Lightning mode
+                    num_steps = 8
+                    cfg_scale = 1.0
+                    yield emit_event(GenerationStep.LORA_LOADED)
+                    print(
+                        f"Fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}"
+                    )
+                else:
+                    print("Warning: Could not load Lightning LoRA v1.1")
+                    print("Falling back to normal generation...")
+                    num_steps = args.steps
+                    cfg_scale = 4.0
         else:
             num_steps = args.steps
             cfg_scale = 4.0
@@ -721,12 +1070,27 @@ def edit_image(args) -> None:
 
     device, torch_dtype = get_device_and_dtype()
 
-    # Load the image editing pipeline
-    print("Loading Qwen-Image-Edit model for image editing...")
-    pipeline = QwenImageEditPipeline.from_pretrained(
-        "Qwen/Qwen-Image-Edit", torch_dtype=torch_dtype
-    )
-    pipeline = pipeline.to(device)
+    # Check if quantization is requested
+    quantization = getattr(args, "quantization", None)
+    if quantization:
+        # Load GGUF quantized model for editing
+        print(f"Loading GGUF quantized model ({quantization}) for image editing...")
+        pipeline = load_gguf_pipeline(quantization, device, torch_dtype, edit_mode=True)
+        if pipeline is None:
+            print("GGUF models for editing may not be available yet.")
+            print("Falling back to standard edit model...")
+            pipeline = QwenImageEditPipeline.from_pretrained(
+                "Qwen/Qwen-Image-Edit", torch_dtype=torch_dtype
+            )
+            pipeline = pipeline.to(device)
+    else:
+        # Load the standard image editing pipeline
+        print("Loading Qwen-Image-Edit model for image editing...")
+        pipeline = QwenImageEditPipeline.from_pretrained(
+            "Qwen/Qwen-Image-Edit", torch_dtype=torch_dtype
+        )
+        pipeline = pipeline.to(device)
+
     pipeline.set_progress_bar_config(disable=None)
 
     # Apply custom LoRA if specified

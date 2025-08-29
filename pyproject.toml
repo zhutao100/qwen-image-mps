@@ -25,6 +25,7 @@ dependencies = [
     "huggingface-hub>=0.20.0",
     "Pillow>=9.0.0",
     "pytest>=8.4.1",
+    "gguf>=0.6.0",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
