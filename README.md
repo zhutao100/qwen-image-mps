@@ -126,6 +126,9 @@ qwen-image-mps generate -f -p "Tall cyberpunk city street, neon rain" --aspect 9
 
 # Save images into a custom directory
 qwen-image-mps generate -p "A cozy cabin in the woods" --outdir my-outputs
+
+# Override CFG scale (default 4.0 normal, 1.0 fast/ultra-fast)
+qwen-image-mps generate -p "Portrait photo" --cfg-scale 2.5
 ```
 
 ### Image Editing Examples:
@@ -165,6 +168,9 @@ qwen-image-mps edit -i portrait.jpg -p "Add dramatic shadows" --batman --fast
 
 # Save edited image into a custom directory
 qwen-image-mps edit -i photo.jpg -p "Add autumn colors" --outdir edits
+
+# Override CFG scale for editing (default 4.0 normal, 1.0 fast/ultra-fast)
+qwen-image-mps edit -i input.jpg -p "Studio portrait" --cfg-scale 2.0
 ```
 
 If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-image-mps.py` in the examples above.
@@ -185,6 +191,7 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
   (e.g., 'flymy-ai/qwen-image-anime-irl-lora' or full HF URL).
 - `--batman`: Add a LEGO Batman minifigure photobombing your image in unexpected ways!
 - `--outdir` (str): Directory to save generated images (default: `./output`).
+- `--cfg-scale` (float): Classifier-free guidance scale (overrides mode defaults).
 
 #### Edit Command Arguments
 - `-i, --input` (str): Path to the input image to edit (required).
@@ -196,6 +203,7 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
 - `--seed` (int): Random seed for reproducible generation (default: 42).
 - `-o, --output` (str): Output filename (default: edited-<timestamp>.png).
 - `--outdir` (str): Directory to save edited images (default: `./output`). If `--output` is a basename, it is saved under this directory.
+- `--cfg-scale` (float): Classifier-free guidance scale (overrides mode defaults).
 - `--lora` (str): Hugging Face model URL or repo ID for additional LoRA to load
   (e.g., 'flymy-ai/qwen-image-anime-irl-lora' or full HF URL).
 - `--batman`: Add a LEGO Batman minifigure photobombing your edited image!
