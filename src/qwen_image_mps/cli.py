@@ -100,6 +100,13 @@ def build_generate_parser(subparsers) -> argparse.ArgumentParser:
         help="Path to local .safetensors file, Hugging Face model URL or repo ID for additional LoRA to load (e.g., '~/Downloads/lora.safetensors', 'flymy-ai/qwen-image-anime-irl-lora' or full HF URL).",
     )
     parser.add_argument(
+        "--cfg-scale",
+        dest="cfg_scale",
+        type=float,
+        default=None,
+        help="Classifier-free guidance (CFG) scale. Overrides mode defaults (fast/ultra-fast use 1.0; normal uses 4.0).",
+    )
+    parser.add_argument(
         "--outdir",
         dest="output_dir",
         type=str,
@@ -515,6 +522,13 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
         help="Output filename (default: edited-<timestamp>.png).",
     )
     parser.add_argument(
+        "--cfg-scale",
+        dest="cfg_scale",
+        type=float,
+        default=None,
+        help="Classifier-free guidance (CFG) scale. Overrides mode defaults (fast/ultra-fast use 1.0; normal uses 4.0).",
+    )
+    parser.add_argument(
         "--outdir",
         dest="output_dir",
         type=str,
@@ -668,7 +682,17 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
         from diffusers import DiffusionPipeline
 
         print(f"Loading GGUF quantized model ({quantization})...")
-        print(f"Memory usage will be approximately {get_model_size(quantization)}")
+        mem = get_total_memory_estimate(quantization)
+        if mem is not None:
+            print(
+                "Estimated on-device memory (transformer + text encoder + VAE): "
+                f"{mem['formatted']}"
+            )
+        else:
+            print(
+                f"Estimated transformer memory: {get_model_size(quantization)}; "
+                "text encoder (~16.6 GB) and VAE (~1.2 GB) additionally."
+            )
 
         try:
             # Try to load using the QwenImageTransformer2DModel class
@@ -825,6 +849,47 @@ def get_model_size(quantization: str) -> str:
     return sizes.get(quantization, "Unknown")
 
 
+def get_total_memory_estimate(quantization: str):
+    """Estimate end-to-end on-device memory usage for GGUF mode.
+
+    Includes:
+    - Quantized transformer (per `get_model_size`) loaded via GGUF
+    - Full-precision text encoder (approx 16.6 GB)
+    - Full-precision VAE and overhead (approx 1.2 GB)
+
+    Returns a dict with numeric GB values and a formatted string.
+    If the quantization value is unknown, returns None.
+    """
+    transformer_str = get_model_size(quantization)
+    if transformer_str == "Unknown":
+        return None
+
+    try:
+        transformer_gb = float(transformer_str.replace(" GB", "").strip())
+    except Exception:
+        return None
+
+    text_encoder_gb = 16.6
+    vae_and_overhead_gb = 1.2
+    total_gb = round(transformer_gb + text_encoder_gb + vae_and_overhead_gb, 1)
+
+    return {
+        "transformer_gb": transformer_gb,
+        "text_encoder_gb": text_encoder_gb,
+        "vae_gb": vae_and_overhead_gb,
+        "total_gb": total_gb,
+        "breakdown": (
+            f"~{transformer_gb} (transformer) + ~{text_encoder_gb} (text encoder) + "
+            f"~{vae_and_overhead_gb} (VAE/overhead)"
+        ),
+        "formatted": (
+            f"~{total_gb} GB (transformer ~{transformer_gb} GB + "
+            f"text encoder ~{text_encoder_gb} GB + "
+            f"VAE/overhead ~{vae_and_overhead_gb} GB)"
+        ),
+    }
+
+
 def create_generator(device, seed):
     """Create a torch.Generator with the appropriate device."""
     import torch
@@ -963,6 +1028,15 @@ def generate_image(args):
         else:
             num_steps = args.steps
             cfg_scale = 4.0
+
+        # Override CFG scale if provided by user
+        if getattr(args, "cfg_scale", None) is not None:
+            try:
+                cfg_scale = float(args.cfg_scale)
+                if cfg_scale < 0:
+                    cfg_scale = 0.0
+            except Exception:
+                pass
 
         # LEGO Batman photobomb mode!
         if args.batman:
@@ -1156,6 +1230,15 @@ def edit_image(args) -> None:
     else:
         num_steps = args.steps
         cfg_scale = 4.0
+
+    # Override CFG scale if provided by user
+    if getattr(args, "cfg_scale", None) is not None:
+        try:
+            cfg_scale = float(args.cfg_scale)
+            if cfg_scale < 0:
+                cfg_scale = 0.0
+        except Exception:
+            pass
 
     # Load input image
     try:
