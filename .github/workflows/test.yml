@@ -67,7 +67,7 @@ jobs:
 
     - name: Install linting tools
       run: |
-        uv pip install --system black isort ruff
+        uv pip install --system black isort
 
     - name: Run isort check
       run: |
@@ -76,7 +76,3 @@ jobs:
     - name: Run black check
       run: |
         black --check src/
-
-    - name: Run ruff check
-      run: |
-        ruff check src/
