@@ -72,6 +72,12 @@ def build_generate_parser(subparsers) -> argparse.ArgumentParser:
         help="Use Lightning LoRA v1.0 for ultra-fast generation (4 steps).",
     )
     parser.add_argument(
+        "--lightning-lora-filename",
+        type=str,
+        default=None,
+        help="Filename of the Lightning LoRA to use (e.g., 'Qwen-Image-Lightning-8steps-V1.1.safetensors'). If not provided, the default filename based on mode will be used.",
+    )
+    parser.add_argument(
         "--seed",
         type=int,
         default=None,
@@ -114,6 +120,12 @@ def build_generate_parser(subparsers) -> argparse.ArgumentParser:
         help="Directory to save generated images (default: ./output).",
     )
     parser.add_argument(
+        "--output-filename",
+        type=str,
+        default=None,
+        help="Base name for the output files (without extension). If not provided, a timestamp-based name will be used.",
+    )
+    parser.add_argument(
         "--batman",
         action="store_true",
         help="LEGO Batman photobombs your image! 🦇",
@@ -142,7 +154,7 @@ def build_generate_parser(subparsers) -> argparse.ArgumentParser:
     return parser
 
 
-def get_lora_path(ultra_fast=False, edit_mode=False):
+def get_lora_path(ultra_fast=False, edit_mode=False, lightning_lora_filename=None):
     from huggingface_hub import hf_hub_download
 
     """Get the Lightning LoRA from Hugging Face Hub with a silent cache freshness check.
@@ -154,7 +166,11 @@ def get_lora_path(ultra_fast=False, edit_mode=False):
     - Return the final resolved local path.
     """
 
-    if edit_mode:
+    if lightning_lora_filename:
+        # Use custom Lightning LoRA filename
+        filename = lightning_lora_filename
+        version = f"custom ({lightning_lora_filename})"
+    elif edit_mode:
         # Use the new Edit Lightning LoRA for editing
         filename = "Qwen-Image-Edit-Lightning-8steps-V1.0-bf16.safetensors"
         version = "Edit v1.0 (8-steps)"
@@ -509,6 +525,12 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
         help="Use Lightning LoRA v1.0 for ultra-fast editing (4 steps).",
     )
     parser.add_argument(
+        "--lightning-lora-filename",
+        type=str,
+        default=None,
+        help="Filename of the Lightning LoRA to use (e.g., 'Qwen-Image-Lightning-8steps-V1.1.safetensors'). If not provided, the default filename based on mode will be used.",
+    )
+    parser.add_argument(
         "--seed",
         type=int,
         default=None,
@@ -534,6 +556,12 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
         type=str,
         default=None,
         help="Directory to save edited images (default: ./output).",
+    )
+    parser.add_argument(
+        "--output-filename",
+        type=str,
+        default=None,
+        help="Base name for the output files (without extension). If not provided, a timestamp-based name will be used.",
     )
     parser.add_argument(
         "--lora",
@@ -898,6 +926,25 @@ def create_generator(device, seed):
     return torch.Generator(device=generator_device).manual_seed(seed)
 
 
+def sanitize_prompt_for_filename(prompt, max_length=50):
+    """Sanitize a prompt string for use in a filename.
+
+    Args:
+        prompt (str): The prompt to sanitize
+        max_length (int): Maximum length of the sanitized string
+
+    Returns:
+        str: Sanitized prompt suitable for use in a filename
+    """
+    # Remove or replace characters that are problematic in filenames
+    sanitized = "".join(c for c in prompt if c.isalnum() or c in " .-_").strip()
+    # Replace multiple spaces with single space
+    import re
+    sanitized = re.sub(r'\s+', ' ', sanitized)
+    # Limit length
+    return sanitized[:max_length]
+
+
 def generate_image(args):
     from diffusers import DiffusionPipeline
 
@@ -984,7 +1031,8 @@ def generate_image(args):
             else:
                 yield emit_event(GenerationStep.LOADING_ULTRA_FAST_LORA)
                 print("Loading Lightning LoRA v1.0 for ultra-fast generation...")
-                lora_path = get_lora_path(ultra_fast=True)
+                lora_path = get_lora_path(ultra_fast=True, lightning_lora_filename=getattr(
+                    args, "lightning_lora_filename", None))
                 if lora_path:
                     pipe = merge_lora_from_safetensors(pipe, lora_path)
                     # Use fixed 4 steps for Ultra Lightning mode
@@ -1010,7 +1058,8 @@ def generate_image(args):
             else:
                 yield emit_event(GenerationStep.LOADING_FAST_LORA)
                 print("Loading Lightning LoRA v1.1 for fast generation...")
-                lora_path = get_lora_path(ultra_fast=False)
+                lora_path = get_lora_path(ultra_fast=False, lightning_lora_filename=getattr(
+                    args, "lightning_lora_filename", None))
                 if lora_path:
                     pipe = merge_lora_from_safetensors(pipe, lora_path)
                     # Use fixed 8 steps for Lightning mode
@@ -1118,17 +1167,20 @@ def generate_image(args):
 
             # Save with timestamp to avoid overwriting previous generations
             yield emit_event(GenerationStep.SAVING_IMAGE)
-            suffix = f"-{image_index+1}" if num_images > 1 else ""
+            suffix = f"-{image_index + 1}" if num_images > 1 else ""
 
-            default_output_dir = getattr(args, "output_dir", None) or "output"
+            # Use custom output directory if specified
+            output_dir = getattr(args, "output_dir", None) or "output"
 
-            # Check if we have custom output path from args
-            if hasattr(args, "output_path") and args.output_path:
-                output_filename = args.output_path
+            # Determine the output filename
+            if getattr(args, "output_filename", None):
+                base_name = args.output_filename
             else:
-                output_filename = os.path.join(
-                    default_output_dir, f"image-{timestamp}{suffix}.png"
-                )
+                # Sanitize prompt for use in filename
+                sanitized_prompt = sanitize_prompt_for_filename(args.prompt)
+                base_name = f"{timestamp}-{sanitized_prompt}"
+
+            output_filename = os.path.join(output_dir, f"{base_name}{suffix}.png")
 
             os.makedirs(os.path.dirname(output_filename) or ".", exist_ok=True)
 
@@ -1199,7 +1251,8 @@ def edit_image(args) -> None:
     # Apply Lightning LoRA if fast or ultra-fast mode is enabled
     if args.ultra_fast:
         print("Loading Lightning LoRA v1.0 for ultra-fast editing...")
-        lora_path = get_lora_path(ultra_fast=True)
+        lora_path = get_lora_path(ultra_fast=True, lightning_lora_filename=getattr(
+            args, "lightning_lora_filename", None))
         if lora_path:
             # Use manual LoRA merging for edit pipeline
             pipeline = merge_lora_from_safetensors(pipeline, lora_path)
@@ -1214,7 +1267,8 @@ def edit_image(args) -> None:
             cfg_scale = 4.0
     elif args.fast:
         print("Loading Lightning Edit LoRA v1.0 for fast editing...")
-        lora_path = get_lora_path(edit_mode=True)
+        lora_path = get_lora_path(edit_mode=True, lightning_lora_filename=getattr(
+            args, "lightning_lora_filename", None))
         if lora_path:
             # Use manual LoRA merging for edit pipeline
             pipeline = merge_lora_from_safetensors(pipeline, lora_path)
@@ -1297,13 +1351,27 @@ def edit_image(args) -> None:
     # Save the edited image
     default_output_dir = getattr(args, "output_dir", None) or "output"
 
-    if args.output:
+    # Use custom output directory if specified
+    output_directory = getattr(args, "output_dir", None) or default_output_dir
+
+    # Determine the output filename
+    if getattr(args, "output_filename", None):
+        base_name = args.output_filename
+    elif args.output:
+        # Use the provided output filename
         output_filename = args.output
         if os.path.basename(output_filename) == output_filename:
-            output_filename = os.path.join(default_output_dir, output_filename)
+            output_filename = os.path.join(output_directory, output_filename)
     else:
+        # Sanitize prompt for use in filename
+        sanitized_prompt = sanitize_prompt_for_filename(args.prompt)
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        output_filename = os.path.join(default_output_dir, f"edited-{timestamp}.png")
+        base_name = f"edited-{timestamp}-{sanitized_prompt}"
+        output_filename = os.path.join(output_directory, f"{base_name}.png")
+
+    # If we haven't set output_filename yet, it means we're using custom naming
+    if 'output_filename' not in locals():
+        output_filename = os.path.join(output_directory, f"{base_name}.png")
 
     os.makedirs(os.path.dirname(output_filename) or ".", exist_ok=True)
 
