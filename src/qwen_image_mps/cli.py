@@ -1603,6 +1603,18 @@ def main() -> None:
     build_generate_parser(subparsers)
     build_edit_parser(subparsers)
 
+    import sys
+
+    # For backward compatibility, if no subcommand is given, default to "generate"
+    if len(sys.argv) > 1 and sys.argv[1] not in [
+        "generate",
+        "edit",
+        "-h",
+        "--help",
+        "--version",
+    ]:
+        sys.argv.insert(1, "generate")
+
     args = parser.parse_args()
 
     # Handle the command
@@ -1612,23 +1624,7 @@ def main() -> None:
     elif args.command == "edit":
         edit_image(args)
     else:
-        # Default to generate for backward compatibility if no subcommand
-        # This allows the old style invocation to still work
-        import sys
-
-        if len(sys.argv) > 1 and sys.argv[1] not in [
-            "generate",
-            "edit",
-            "-h",
-            "--help",
-        ]:
-            # Parse as generate command for backward compatibility
-            sys.argv.insert(1, "generate")
-            args = parser.parse_args()
-            # Consume the generator to execute the image generation
-            list(generate_image(args))
-        else:
-            parser.print_help()
+        parser.print_help()
 
 
 if __name__ == "__main__":

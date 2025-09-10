@@ -2,6 +2,11 @@
 Integration and unit tests for the qwen-image-mps CLI.
 """
 
+from qwen_image_mps.cli import (
+    main,
+    sanitize_prompt_for_filename,
+    get_lora_path,
+)
 import pytest
 from unittest.mock import patch, MagicMock
 import os
@@ -9,13 +14,9 @@ import sys
 # Add src to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from qwen_image_mps.cli import (
-    main,
-    sanitize_prompt_for_filename,
-    get_lora_path,
-)
 
 # Test sanitize_prompt_for_filename function
+
 @pytest.mark.parametrize(
     "prompt, max_length, expected",
     [
@@ -184,3 +185,16 @@ def test_cli_edit_command(mock_edit_image):
     assert args[0].input == ["input.png"]
     assert args[0].prompt == "edit prompt"
     assert args[0].fast is True
+
+
+@patch("qwen_image_mps.cli.generate_image")
+def test_cli_backward_compatibility_no_command(mock_generate_image):
+    """Test that running without a subcommand defaults to 'generate' for backward compatibility."""
+    # This test simulates invoking the script like `qwen-image-mps --prompt "a prompt"`
+    test_args = ["qwen-image-mps", "--prompt", "a backward-compatible prompt"]
+    with patch.object(sys, "argv", test_args):
+        main()
+
+    mock_generate_image.assert_called_once()
+    args, _ = mock_generate_image.call_args
+    assert args[0].prompt == "a backward-compatible prompt"
