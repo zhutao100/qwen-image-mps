@@ -1599,27 +1599,30 @@ def main() -> None:
     build_edit_parser(subparsers)
 
     import sys
+    try:
+        # For backward compatibility, if no subcommand is given, default to "generate"
+        if len(sys.argv) > 1 and sys.argv[1] not in [
+            "generate",
+            "edit",
+            "-h",
+            "--help",
+            "--version",
+        ]:
+            sys.argv.insert(1, "generate")
 
-    # For backward compatibility, if no subcommand is given, default to "generate"
-    if len(sys.argv) > 1 and sys.argv[1] not in [
-        "generate",
-        "edit",
-        "-h",
-        "--help",
-        "--version",
-    ]:
-        sys.argv.insert(1, "generate")
+        args = parser.parse_args()
 
-    args = parser.parse_args()
+        # Handle the command
+        if args.command == "generate":
+            # Consume the generator to execute the image generation
+            list(generate_image(args))
+        elif args.command == "edit":
+            edit_image(args)
+        else:
+            parser.print_help()
 
-    # Handle the command
-    if args.command == "generate":
-        # Consume the generator to execute the image generation
-        list(generate_image(args))
-    elif args.command == "edit":
-        edit_image(args)
-    else:
-        parser.print_help()
+    except KeyboardInterrupt:
+        print("\nProcess interrupted by user. Exiting...")
 
 
 if __name__ == "__main__":
