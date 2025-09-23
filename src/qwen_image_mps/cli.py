@@ -854,7 +854,7 @@ def get_text_encoder_gguf_path(quantization: str):
     # Using unsloth repository with correct case-sensitive filenames
     gguf_files = {
         "Q2_K": "Qwen2.5-VL-7B-Instruct-Q2_K.gguf",
-        "Q3_K_S": "Qwen2.5-VL-7B-Instruct-Q3_K_S.gguf", 
+        "Q3_K_S": "Qwen2.5-VL-7B-Instruct-Q3_K_S.gguf",
         "Q3_K_M": "Qwen2.5-VL-7B-Instruct-Q3_K_M.gguf",
         "Q4_0": "Qwen2.5-VL-7B-Instruct-Q4_0.gguf",
         "Q4_1": "Qwen2.5-VL-7B-Instruct-Q4_1.gguf",
@@ -890,14 +890,14 @@ def get_text_encoder_gguf_path(quantization: str):
 
 class QwenTextEncoderGGUF:
     """Custom text encoder that loads from GGUF files.
-    
+
     This class provides a wrapper around the Qwen2.5-VL model loaded from GGUF
     to be used as a text encoder in diffusion pipelines.
     """
-    
+
     def __init__(self, gguf_path: str, device, torch_dtype):
         """Initialize the GGUF text encoder.
-        
+
         Args:
             gguf_path: Path to the GGUF file
             device: Device to load on
@@ -906,77 +906,77 @@ class QwenTextEncoderGGUF:
         self.device = device
         self.torch_dtype = torch_dtype
         self.gguf_path = gguf_path
-        
+
         # Load the model using transformers
         self._load_model()
-    
+
     def _load_model(self):
         """Load the GGUF model using transformers."""
         try:
-            from transformers import AutoModelForCausalLM, AutoTokenizer
             import torch
-            
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+
             print(f"Loading GGUF text encoder from {self.gguf_path}...")
-            
+
             # Load the model and tokenizer
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.gguf_path,
                 torch_dtype=self.torch_dtype,
                 device_map="auto" if self.device != "cpu" else None,
-                trust_remote_code=True
+                trust_remote_code=True,
             )
-            
+
             # Load tokenizer from the original model
             self.tokenizer = AutoTokenizer.from_pretrained(
-                "Qwen/Qwen2.5-VL-7B-Instruct",
-                trust_remote_code=True
+                "Qwen/Qwen2.5-VL-7B-Instruct", trust_remote_code=True
             )
-            
+
             if self.device == "cpu":
                 self.model = self.model.to(self.device)
-            
+
             print("GGUF text encoder loaded successfully")
-            
+
         except Exception as e:
             print(f"Error loading GGUF text encoder: {e}")
             raise
-    
+
     def encode(self, text, return_tensors="pt"):
         """Encode text to embeddings.
-        
+
         Args:
             text: Input text to encode
             return_tensors: Format to return tensors in
-            
+
         Returns:
             Encoded text embeddings
         """
         try:
             # Tokenize the input text
             inputs = self.tokenizer(
-                text, 
-                return_tensors=return_tensors, 
-                padding=True, 
+                text,
+                return_tensors=return_tensors,
+                padding=True,
                 truncation=True,
-                max_length=512  # Reasonable limit for text encoder
+                max_length=512,  # Reasonable limit for text encoder
             )
-            
+
             # Move to device
             inputs = {k: v.to(self.device) for k, v in inputs.items()}
-            
+
             # Get embeddings from the model
             import torch
+
             with torch.no_grad():
                 outputs = self.model(**inputs, output_hidden_states=True)
                 # Use the last hidden state as embeddings
                 embeddings = outputs.hidden_states[-1]
-            
+
             return embeddings
-            
+
         except Exception as e:
             print(f"Error encoding text: {e}")
             raise
-    
+
     def __call__(self, text, return_tensors="pt"):
         """Make the encoder callable."""
         return self.encode(text, return_tensors)
@@ -984,12 +984,12 @@ class QwenTextEncoderGGUF:
 
 def load_gguf_text_encoder(quantization: str, device, torch_dtype):
     """Load a GGUF quantized text encoder.
-    
+
     Args:
         quantization: Quantization level (e.g., 'Q4_0')
         device: Device to load on
         torch_dtype: Data type for computation
-        
+
     Returns:
         QwenTextEncoderGGUF instance or None if failed
     """
@@ -998,11 +998,11 @@ def load_gguf_text_encoder(quantization: str, device, torch_dtype):
         gguf_path = get_text_encoder_gguf_path(quantization)
         if not gguf_path:
             return None
-        
+
         # Create the custom text encoder
         text_encoder = QwenTextEncoderGGUF(gguf_path, device, torch_dtype)
         return text_encoder
-        
+
     except Exception as e:
         print(f"Error loading GGUF text encoder: {e}")
         return None
@@ -1059,7 +1059,7 @@ def get_total_memory_estimate(quantization: str):
     """
     transformer_str = get_model_size(quantization)
     text_encoder_str = get_text_encoder_size(quantization)
-    
+
     if transformer_str == "Unknown":
         return None
 
@@ -1208,7 +1208,7 @@ def generate_image(args):
                 cfg_scale = 1.0
             else:
                 yield emit_event(GenerationStep.LOADING_FAST_LORA)
-                print("Loading Lightning LoRA v1.1 for fast generation...")
+                print("Loading Lightning LoRA for fast generation...")
                 lora_path = get_lora_path(ultra_fast=False)
                 if lora_path:
                     pipe = merge_lora_from_safetensors(pipe, lora_path)
