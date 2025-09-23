@@ -63,13 +63,13 @@ def build_generate_parser(subparsers) -> argparse.ArgumentParser:
         "-f",
         "--fast",
         action="store_true",
-        help="Use Lightning LoRA v1.1 for fast generation (8 steps).",
+        help="Use Lightning LoRA for fast generation (8 steps).",
     )
     parser.add_argument(
         "-uf",
         "--ultra-fast",
         action="store_true",
-        help="Use Lightning LoRA v1.0 for ultra-fast generation (4 steps).",
+        help="Use Lightning LoRA for ultra-fast generation (4 steps).",
     )
     parser.add_argument(
         "--seed",
@@ -159,11 +159,11 @@ def get_lora_path(ultra_fast=False, edit_mode=False):
         filename = "Qwen-Image-Edit-Lightning-8steps-V1.0-bf16.safetensors"
         version = "Edit v1.0 (8-steps)"
     elif ultra_fast:
-        filename = "Qwen-Image-Lightning-4steps-V1.0-bf16.safetensors"
-        version = "v1.0 (4-steps)"
+        filename = "Qwen-Image-Lightning-4steps-V2.0-bf16.safetensors"
+        version = "v2.0 (4-steps)"
     else:
-        filename = "Qwen-Image-Lightning-8steps-V1.1-bf16.safetensors"
-        version = "v1.1 (8-steps)"
+        filename = "Qwen-Image-Lightning-8steps-V2.0-bf16.safetensors"
+        version = "v2.0 (8-steps)"
 
     try:
         cached_path = None
@@ -470,8 +470,9 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
         "-i",
         "--input",
         type=str,
+        nargs="+",
         required=True,
-        help="Path to the input image to edit.",
+        help="Path(s) to the input image(s) to edit. Provide multiple paths to blend edits across images.",
     )
     parser.add_argument(
         "-p",
@@ -1159,8 +1160,12 @@ def generate_image(args):
 
 def edit_image(args) -> None:
     import torch
-    from diffusers import QwenImageEditPipeline
     from PIL import Image
+
+    try:
+        from diffusers import QwenImageEditPlusPipeline as EditPipeline
+    except ImportError:
+        from diffusers import QwenImageEditPipeline as EditPipeline
 
     device, torch_dtype = get_device_and_dtype()
 
@@ -1173,15 +1178,15 @@ def edit_image(args) -> None:
         if pipeline is None:
             print("GGUF models for editing may not be available yet.")
             print("Falling back to standard edit model...")
-            pipeline = QwenImageEditPipeline.from_pretrained(
-                "Qwen/Qwen-Image-Edit", torch_dtype=torch_dtype
+            pipeline = EditPipeline.from_pretrained(
+                "Qwen/Qwen-Image-Edit-2509", torch_dtype=torch_dtype
             )
             pipeline = pipeline.to(device)
     else:
         # Load the standard image editing pipeline
         print("Loading Qwen-Image-Edit model for image editing...")
-        pipeline = QwenImageEditPipeline.from_pretrained(
-            "Qwen/Qwen-Image-Edit", torch_dtype=torch_dtype
+        pipeline = EditPipeline.from_pretrained(
+            "Qwen/Qwen-Image-Edit-2509", torch_dtype=torch_dtype
         )
         pipeline = pipeline.to(device)
 
@@ -1241,9 +1246,14 @@ def edit_image(args) -> None:
             pass
 
     # Load input image
+    input_paths = args.input if isinstance(args.input, (list, tuple)) else [args.input]
+
+    images = []
     try:
-        image = Image.open(args.input).convert("RGB")
-        print(f"Loaded input image: {args.input} ({image.size[0]}x{image.size[1]})")
+        for path in input_paths:
+            image = Image.open(path).convert("RGB")
+            print(f"Loaded input image: {path} ({image.size[0]}x{image.size[1]})")
+            images.append(image)
     except Exception as e:
         print(f"Error loading input image: {e}")
         return
@@ -1282,10 +1292,11 @@ def edit_image(args) -> None:
     print(f"Editing image with prompt: {edit_prompt}")
     print(f"Using {num_steps} inference steps...")
 
-    # QwenImageEditPipeline for image editing
+    # Qwen image edit pipeline for image editing
     with torch.inference_mode():
+        pipeline_inputs = images if len(images) > 1 else images[0]
         output = pipeline(
-            image=image,
+            image=pipeline_inputs,
             prompt=edit_prompt,
             negative_prompt=edit_negative_prompt,
             num_inference_steps=num_steps,

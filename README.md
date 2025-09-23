@@ -13,6 +13,7 @@ Generate and edit images from text prompts using the Hugging Face Diffusers pipe
 - **Fast mode**: 8-step generation using Lightning LoRA (auto-downloads if needed)
 - **Ultra-fast mode**: 4-step generation using Lightning LoRA (auto-downloads if needed)
 - **Multi-image generation**: generate multiple images in one run with `--num-images`
+- **Multi-image editing**: blend multiple input images in a single edit command
 - **Batman mode**: Add a LEGO Batman minifigure photobombing your images with `--batman` 🦇
 
 ### Examples
@@ -157,6 +158,9 @@ qwen-image-mps edit -i photo.jpg -p "Make it anime style" --lora flymy-ai/qwen-i
 # Edit with custom LoRA and ultra-fast mode combined
 qwen-image-mps edit -i landscape.jpg -p "Add cyberpunk elements" --lora your-username/your-lora-model --ultra-fast
 
+# Combine multiple input images in a single edit
+qwen-image-mps edit -i input1.png input2.png -p "Merge the two scenes into a city skyline"
+
 # Use a negative prompt during editing
 qwen-image-mps edit -i photo.jpg -p "Studio portrait" --negative-prompt "blurry, watermark, text, low quality"
 
@@ -194,7 +198,7 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
 - `--cfg-scale` (float): Classifier-free guidance scale (overrides mode defaults).
 
 #### Edit Command Arguments
-- `-i, --input` (str): Path to the input image to edit (required).
+- `-i, --input` (str): Path(s) to the input image(s) to edit (required). Provide multiple paths to blend results.
 - `-p, --prompt` (str): Editing instructions (required).
 - `--negative-prompt` (str): Text to discourage in the edit (negative prompt).
 - `-s, --steps` (int): Number of inference steps for normal editing (default: 50).
@@ -223,7 +227,7 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
 - Prints the full path of the saved image
 
 ### Image Editing
-- Loads `Qwen/Qwen-Image-Edit` via `QwenImageEditPipeline` for image editing
+- Loads `Qwen/Qwen-Image-Edit-2509` via `QwenImageEditPlusPipeline` (falling back to `QwenImageEditPipeline` when needed)
 - Takes an existing image and editing instructions as input
 - Applies transformations while preserving the original structure
 - Saves the edited image under `output/` by default as `edited-YYYYMMDD-HHMMSS.png`, or to a custom filename.
@@ -233,14 +237,14 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
 
 #### Fast Mode (`-f/--fast`)
 When using the `-f/--fast` flag, the tool:
-- Automatically downloads the Lightning LoRA v1.1 from Hugging Face (cached in `~/.cache/huggingface/hub/`)
+- Automatically downloads the Lightning LoRA v2.0 from Hugging Face (cached in `~/.cache/huggingface/hub/`)
 - Merges the LoRA weights into the model for accelerated generation
 - Uses fixed 8 inference steps with CFG scale 1.0
 - Provides ~6x speedup compared to the default 50 steps
 
 #### Ultra-Fast Mode (`-uf/--ultra-fast`)
 When using the `-uf/--ultra-fast` flag, the tool:
-- Automatically downloads the Lightning LoRA v1.0 from Hugging Face (cached in `~/.cache/huggingface/hub/`)
+- Automatically downloads the Lightning LoRA v2.0 from Hugging Face (cached in `~/.cache/huggingface/hub/`)
 - Merges the LoRA weights into the model for maximum speed generation
 - Uses fixed 4 inference steps with CFG scale 1.0
 - Provides ~12x speedup compared to the default 50 steps
