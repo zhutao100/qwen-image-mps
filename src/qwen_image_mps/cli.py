@@ -154,8 +154,12 @@ def get_lora_path(ultra_fast=False, edit_mode=False):
     - Return the final resolved local path.
     """
 
-    if edit_mode:
-        # Use the new Edit Lightning LoRA for editing
+    if edit_mode and ultra_fast:
+        # Use the ultra-fast Lightning LoRA for editing
+        filename = "Qwen-Image-Edit-Lightning-4steps-V1.0-bf16.safetensors"
+        version = "Edit v1.0 (4-steps)"
+    elif edit_mode:
+        # Use the Lightning LoRA for standard fast editing
         filename = "Qwen-Image-Edit-Lightning-8steps-V1.0-bf16.safetensors"
         version = "Edit v1.0 (8-steps)"
     elif ultra_fast:
@@ -494,20 +498,20 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
         "-s",
         "--steps",
         type=int,
-        default=50,
+        default=40,
         help="Number of inference steps for normal editing.",
     )
     parser.add_argument(
         "-f",
         "--fast",
         action="store_true",
-        help="Use Lightning LoRA v1.1 for fast editing (8 steps).",
+        help="Use Lightning LoRA for fast editing (8 steps).",
     )
     parser.add_argument(
         "-uf",
         "--ultra-fast",
         action="store_true",
-        help="Use Lightning LoRA v1.0 for ultra-fast editing (4 steps).",
+        help="Use Lightning LoRA for ultra-fast editing (4 steps).",
     )
     parser.add_argument(
         "--seed",
@@ -730,16 +734,6 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
 
             print("Creating pipeline with quantized transformer...")
 
-            # Always use standard text encoder; GGUF TE unsupported
-            #
-            # Rationale (preserved for future work):
-            # - The available Qwen2.5-VL-7B GGUF files are full VLMs not yet pluggable
-            #   as text encoders in diffusers.
-            # - Loading GGUF TE via transformers.from_pretrained with a local .gguf path
-            #   is not supported and yields repo-id errors.
-            # - ComfyUI-GGUF demonstrates feasibility with custom ops/patchers; if
-            #   diffusers gains similar capabilities, we can revisit enabling GGUF TE
-            #   for additional memory savings (~4–8 GB vs 16.6 GB FP).
             pipeline = DiffusionPipeline.from_pretrained(
                 "Qwen/Qwen-Image",
                 transformer=transformer,
@@ -799,8 +793,6 @@ def load_quantized_text_encoder(quantization: str, device, torch_dtype):
     Returns:
         Quantized text encoder or None
     """
-    # For now, we'll use transformers' built-in quantization
-    # Future: Could implement GGUF loading when proper text encoder GGUF files are available
 
     try:
         import torch
@@ -824,8 +816,6 @@ def load_quantized_text_encoder(quantization: str, device, torch_dtype):
             return None
 
         print(f"Loading text encoder with {quantization} quantization...")
-        # Note: This would need the actual text encoder model path
-        # For now, return None as we need proper implementation
         return None
 
     except ImportError:
@@ -1401,8 +1391,8 @@ def edit_image(args) -> None:
 
     # Apply Lightning LoRA if fast or ultra-fast mode is enabled
     if args.ultra_fast:
-        print("Loading Lightning LoRA v1.0 for ultra-fast editing...")
-        lora_path = get_lora_path(ultra_fast=True)
+        print("Loading Lightning Edit LoRA v1.0 (4 steps) for ultra-fast editing...")
+        lora_path = get_lora_path(ultra_fast=True, edit_mode=True)
         if lora_path:
             # Use manual LoRA merging for edit pipeline
             pipeline = merge_lora_from_safetensors(pipeline, lora_path)
@@ -1411,7 +1401,7 @@ def edit_image(args) -> None:
             cfg_scale = 1.0
             print(f"Ultra-fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
         else:
-            print("Warning: Could not load Lightning LoRA v1.0")
+            print("Warning: Could not load Lightning Edit LoRA v1.0 (4 steps)")
             print("Falling back to normal editing...")
             num_steps = args.steps
             cfg_scale = 4.0
