@@ -4,7 +4,6 @@ import random
 import secrets
 from datetime import datetime
 from enum import Enum
-from typing import Optional
 
 import torch
 
@@ -503,6 +502,7 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
         help="Editing instructions (e.g., 'Change the sky to sunset colors').",
     )
     parser.add_argument(
+        "-np",
         "--negative-prompt",
         dest="negative_prompt",
         type=str,
@@ -1131,138 +1131,181 @@ def sanitize_prompt_for_filename(prompt, max_length=50):
     return sanitized[:max_length]
 
 
-def generate_image(args):
+_BATMAN_GENERATION_VARIANTS = [
+    ", with a tiny LEGO Batman minifigure photobombing in the corner doing a dramatic cape pose",
+    ", featuring a small LEGO Batman minifigure sneaking into the frame from the side",
+    ", and a miniature LEGO Batman figure peeking from behind something",
+    ", with a tiny LEGO Batman minifigure in the background striking a heroic pose",
+    ", including a small LEGO Batman figure hanging upside down from the top of the frame",
+    ", with a tiny LEGO Batman minifigure doing the Batusi dance in the corner",
+    ", and a small LEGO Batman figure photobombing with jazz hands",
+    ", featuring a miniature LEGO Batman popping up from the bottom like 'I'm Batman!'",
+    ", with a tiny LEGO Batman minifigure sliding into frame on a grappling hook",
+    ", and a small LEGO Batman figure in the distance shouting 'WHERE ARE THEY?!'",
+]
+
+
+def _emit_generation_event(event_callback, step: GenerationStep):
+    if event_callback:
+        try:
+            event_callback(step)
+        except Exception as e:
+            print(f"Warning: Event callback error: {e}")
+    return step
+
+
+def _load_generation_pipeline(args, device, torch_dtype):
     from diffusers import DiffusionPipeline
 
-    # Get the event callback if provided
+    model_name = "Qwen/Qwen-Image"
+    quantization = getattr(args, "quantization", None)
+
+    if quantization:
+        pipe = load_gguf_pipeline(quantization, device, torch_dtype, edit_mode=False)
+        if pipe is None:
+            print("Failed to load GGUF model, falling back to standard model...")
+            pipe = DiffusionPipeline.from_pretrained(model_name, torch_dtype=torch_dtype)
+            pipe = pipe.to(device)
+        return pipe, True
+
+    pipe = DiffusionPipeline.from_pretrained(model_name, torch_dtype=torch_dtype)
+    pipe = pipe.to(device)
+    return pipe, False
+
+
+def _apply_custom_lora_for_generation(pipeline, args, using_gguf, emit):
+    if not getattr(args, "lora", None):
+        return pipeline
+
+    if using_gguf:
+        print("Warning: LoRA loading is not supported with GGUF quantized models.")
+        print("The internal structure of GGUF models differs from standard models.")
+        print("Continuing without LoRA...")
+        return pipeline
+
+    yield emit(GenerationStep.LOADING_CUSTOM_LORA)
+    print(f"Loading custom LoRA: {args.lora}")
+    custom_lora_path = get_custom_lora_path(args.lora)
+    if custom_lora_path:
+        pipeline = merge_lora_from_safetensors(pipeline, custom_lora_path)
+        yield emit(GenerationStep.LORA_LOADED)
+    else:
+        print("Warning: Could not load custom LoRA, continuing without it...")
+    return pipeline
+
+
+def _apply_lightning_generation_mode(pipeline, args, using_gguf, emit):
+    num_steps = args.steps
+    cfg_scale = 4.0
+    lightning_filename = getattr(args, "lightning_lora_filename", None)
+
+    if getattr(args, "ultra_fast", False):
+        if using_gguf:
+            print("Warning: Lightning LoRA is not compatible with GGUF quantized models.")
+            print("Using GGUF model with standard inference settings...")
+            return pipeline, 4, 1.0
+
+        yield emit(GenerationStep.LOADING_ULTRA_FAST_LORA)
+        print("Loading Lightning LoRA v1.0 for ultra-fast generation...")
+        lora_path = get_lora_path(
+            ultra_fast=True, lightning_lora_filename=lightning_filename
+        )
+        if lora_path:
+            pipeline = merge_lora_from_safetensors(pipeline, lora_path)
+            num_steps = 4
+            cfg_scale = 1.0
+            yield emit(GenerationStep.LORA_LOADED)
+            print(f"Ultra-fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
+        else:
+            print("Warning: Could not load Lightning LoRA v1.0")
+            print("Falling back to normal generation...")
+    elif getattr(args, "fast", False):
+        if using_gguf:
+            print("Warning: Lightning LoRA is not compatible with GGUF quantized models.")
+            print("Using GGUF model with reduced steps for faster generation...")
+            return pipeline, 8, 1.0
+
+        yield emit(GenerationStep.LOADING_FAST_LORA)
+        print("Loading Lightning LoRA for fast generation...")
+        lora_path = get_lora_path(
+            ultra_fast=False, lightning_lora_filename=lightning_filename
+        )
+        if lora_path:
+            pipeline = merge_lora_from_safetensors(pipeline, lora_path)
+            num_steps = 8
+            cfg_scale = 1.0
+            yield emit(GenerationStep.LORA_LOADED)
+            print(f"Fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
+        else:
+            print("Warning: Could not load Lightning LoRA v1.1")
+            print("Falling back to normal generation...")
+
+    return pipeline, num_steps, cfg_scale
+
+
+def _resolve_aspect_dimensions(aspect):
+    aspect_ratios = {
+        "1:1": (1328, 1328),
+        "16:9": (1664, 928),
+        "9:16": (928, 1664),
+        "4:3": (1472, 1104),
+        "3:4": (1104, 1472),
+        "3:2": (1584, 1056),
+        "2:3": (1056, 1584),
+    }
+    return aspect_ratios[aspect]
+
+
+def _compute_generation_output_spec(args, timestamp):
+    output_dir = getattr(args, "output_dir", None) or "output"
+    if getattr(args, "output_filename", None):
+        base_name = args.output_filename
+    else:
+        sanitized_prompt = sanitize_prompt_for_filename(args.prompt)
+        base_name = f"{timestamp}-{sanitized_prompt}"
+    return output_dir, base_name
+
+
+def _resolve_per_image_seed(base_seed, image_index):
+    if base_seed is not None:
+        return int(base_seed) + image_index
+    return secrets.randbits(63)
+
+
+def _build_generation_prompt(base_prompt, batman_enabled, num_images, image_index):
+    if not batman_enabled:
+        return base_prompt
+
+    batman_action = random.choice(_BATMAN_GENERATION_VARIANTS)
+    if num_images > 1:
+        print(
+            f"  Image {image_index + 1}: Using Batman variant - {batman_action[2:50]}..."
+        )
+    return base_prompt + batman_action
+
+
+def generate_image(args):
     event_callback = getattr(args, "event_callback", None)
 
-    # Helper function to yield events directly
-    def emit_event(step: GenerationStep):
-        if event_callback:
-            try:
-                event_callback(step)
-            except Exception as e:
-                print(f"Warning: Event callback error: {e}")
-        # Always yield the step for generator consumers
-        return step
+    def emit(step: GenerationStep):
+        return _emit_generation_event(event_callback, step)
 
     try:
-        yield emit_event(GenerationStep.INIT)
+        yield emit(GenerationStep.INIT)
 
-        model_name = "Qwen/Qwen-Image"
         device, torch_dtype = get_device_and_dtype()
 
-        yield emit_event(GenerationStep.LOADING_MODEL)
+        yield emit(GenerationStep.LOADING_MODEL)
+        pipe, using_gguf = _load_generation_pipeline(args, device, torch_dtype)
 
-        # Check if quantization is requested
-        quantization = getattr(args, "quantization", None)
+        yield emit(GenerationStep.MODEL_LOADED)
 
-        if quantization:
-            # Load GGUF quantized model
-            pipe = load_gguf_pipeline(
-                quantization, device, torch_dtype, edit_mode=False
-            )
-            if pipe is None:
-                print("Failed to load GGUF model, falling back to standard model...")
-                pipe = DiffusionPipeline.from_pretrained(
-                    model_name, torch_dtype=torch_dtype
-                )
-                pipe = pipe.to(device)
-        else:
-            # Load standard model
-            pipe = DiffusionPipeline.from_pretrained(
-                model_name, torch_dtype=torch_dtype
-            )
-            pipe = pipe.to(device)
+        pipe = yield from _apply_custom_lora_for_generation(pipe, args, using_gguf, emit)
 
-        yield emit_event(GenerationStep.MODEL_LOADED)
+        pipe, num_steps, cfg_scale = yield from _apply_lightning_generation_mode(
+            pipe, args, using_gguf, emit
+        )
 
-        # Check if using GGUF model
-        using_gguf = quantization is not None
-
-        # Apply custom LoRA if specified (skip if using GGUF due to incompatibility)
-        if args.lora:
-            if using_gguf:
-                print(
-                    "Warning: LoRA loading is not supported with GGUF quantized models."
-                )
-                print(
-                    "The internal structure of GGUF models differs from standard models."
-                )
-                print("Continuing without LoRA...")
-            else:
-                yield emit_event(GenerationStep.LOADING_CUSTOM_LORA)
-                print(f"Loading custom LoRA: {args.lora}")
-                custom_lora_path = get_custom_lora_path(args.lora)
-                if custom_lora_path:
-                    pipe = merge_lora_from_safetensors(pipe, custom_lora_path)
-                    yield emit_event(GenerationStep.LORA_LOADED)
-                else:
-                    print(
-                        "Warning: Could not load custom LoRA, continuing without it..."
-                    )
-
-        # Apply Lightning LoRA if fast or ultra-fast mode is enabled (skip if using GGUF)
-        if args.ultra_fast:
-            if using_gguf:
-                print(
-                    "Warning: Lightning LoRA is not compatible with GGUF quantized models."
-                )
-                print("Using GGUF model with standard inference settings...")
-                num_steps = 4  # Still use fewer steps for speed
-                cfg_scale = 1.0
-            else:
-                yield emit_event(GenerationStep.LOADING_ULTRA_FAST_LORA)
-                print("Loading Lightning LoRA v1.0 for ultra-fast generation...")
-                lora_path = get_lora_path(ultra_fast=True, lightning_lora_filename=getattr(
-                    args, "lightning_lora_filename", None))
-                if lora_path:
-                    pipe = merge_lora_from_safetensors(pipe, lora_path)
-                    # Use fixed 4 steps for Ultra Lightning mode
-                    num_steps = 4
-                    cfg_scale = 1.0
-                    yield emit_event(GenerationStep.LORA_LOADED)
-                    print(
-                        f"Ultra-fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}"
-                    )
-                else:
-                    print("Warning: Could not load Lightning LoRA v1.0")
-                    print("Falling back to normal generation...")
-                    num_steps = args.steps
-                    cfg_scale = 4.0
-        elif args.fast:
-            if using_gguf:
-                print(
-                    "Warning: Lightning LoRA is not compatible with GGUF quantized models."
-                )
-                print("Using GGUF model with reduced steps for faster generation...")
-                num_steps = 8  # Still use fewer steps for speed
-                cfg_scale = 1.0
-            else:
-                yield emit_event(GenerationStep.LOADING_FAST_LORA)
-                print("Loading Lightning LoRA for fast generation...")
-                lora_path = get_lora_path(ultra_fast=False, lightning_lora_filename=getattr(
-                    args, "lightning_lora_filename", None))
-                if lora_path:
-                    pipe = merge_lora_from_safetensors(pipe, lora_path)
-                    # Use fixed 8 steps for Lightning mode
-                    num_steps = 8
-                    cfg_scale = 1.0
-                    yield emit_event(GenerationStep.LORA_LOADED)
-                    print(
-                        f"Fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}"
-                    )
-                else:
-                    print("Warning: Could not load Lightning LoRA v1.1")
-                    print("Falling back to normal generation...")
-                    num_steps = args.steps
-                    cfg_scale = 4.0
-        else:
-            num_steps = args.steps
-            cfg_scale = 4.0
-
-        # Override CFG scale if provided by user
         if getattr(args, "cfg_scale", None) is not None:
             try:
                 cfg_scale = float(args.cfg_scale)
@@ -1271,73 +1314,37 @@ def generate_image(args):
             except Exception:
                 pass
 
-        # LEGO Batman photobomb mode!
-        if args.batman:
-            yield emit_event(GenerationStep.BATMAN_MODE_ACTIVATED)
-
-            batman_additions = [
-                ", with a tiny LEGO Batman minifigure photobombing in the corner doing a dramatic cape pose",
-                ", featuring a small LEGO Batman minifigure sneaking into the frame from the side",
-                ", and a miniature LEGO Batman figure peeking from behind something",
-                ", with a tiny LEGO Batman minifigure in the background striking a heroic pose",
-                ", including a small LEGO Batman figure hanging upside down from the top of the frame",
-                ", with a tiny LEGO Batman minifigure doing the Batusi dance in the corner",
-                ", and a small LEGO Batman figure photobombing with jazz hands",
-                ", featuring a miniature LEGO Batman popping up from the bottom like 'I'm Batman!'",
-                ", with a tiny LEGO Batman minifigure sliding into frame on a grappling hook",
-                ", and a small LEGO Batman figure in the distance shouting 'WHERE ARE THEY?!'",
-            ]
+        batman_enabled = getattr(args, "batman", False)
+        if batman_enabled:
+            yield emit(GenerationStep.BATMAN_MODE_ACTIVATED)
             print("\n🦇 BATMAN MODE ACTIVATED: Adding surprise LEGO Batman photobomb!")
 
-        yield emit_event(GenerationStep.PREPARING_GENERATION)
+        yield emit(GenerationStep.PREPARING_GENERATION)
 
-        # Negative prompt: allow CLI override; default to empty when not provided
-        neg_from_args = getattr(args, "negative_prompt", None)
-        negative_prompt = " " if neg_from_args is None else neg_from_args
+        negative_prompt = (
+            " "
+            if getattr(args, "negative_prompt", None) is None
+            else args.negative_prompt
+        )
 
-        aspect_ratios = {
-            "1:1": (1328, 1328),
-            "16:9": (1664, 928),
-            "9:16": (928, 1664),
-            "4:3": (1472, 1104),
-            "3:4": (1104, 1472),
-            "3:2": (1584, 1056),
-            "2:3": (1056, 1584),
-        }
-
-        width, height = aspect_ratios[args.aspect]
-
-        # Ensure we generate at least one image
+        width, height = _resolve_aspect_dimensions(args.aspect)
         num_images = max(1, int(args.num_images))
-
-        # Shared timestamp for this generation batch
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+
+        output_dir, base_name = _compute_generation_output_spec(args, timestamp)
 
         saved_paths = []
         saved_seeds = []
 
         for image_index in range(num_images):
-            if args.seed is not None:
-                # Deterministic: increment seed per image starting from the provided seed
-                per_image_seed = int(args.seed) + image_index
-            else:
-                # Random seed for each image when no seed is provided
-                # Use 63-bit to keep it positive and well within torch's expected range
-                per_image_seed = secrets.randbits(63)
-
-            # Choose a random Batman prompt for each image when in Batman mode
-            current_prompt = args.prompt
-            if args.batman:
-                batman_action = random.choice(batman_additions)
-                current_prompt = current_prompt + batman_action
-                if num_images > 1:
-                    print(
-                        f"  Image {image_index + 1}: Using Batman variant - {batman_action[2:50]}..."
-                    )
+            per_image_seed = _resolve_per_image_seed(args.seed, image_index)
+            current_prompt = _build_generation_prompt(
+                args.prompt, batman_enabled, num_images, image_index
+            )
 
             generator = create_generator(device, per_image_seed)
 
-            yield emit_event(GenerationStep.INFERENCE_START)
+            yield emit(GenerationStep.INFERENCE_START)
             with torch.inference_mode():
                 image = pipe(
                     prompt=current_prompt,
@@ -1348,24 +1355,13 @@ def generate_image(args):
                     true_cfg_scale=cfg_scale,
                     generator=generator,
                 ).images[0]
-            yield emit_event(GenerationStep.INFERENCE_COMPLETE)
+            yield emit(GenerationStep.INFERENCE_COMPLETE)
 
-            # Save with timestamp to avoid overwriting previous generations
-            yield emit_event(GenerationStep.SAVING_IMAGE)
+            yield emit(GenerationStep.SAVING_IMAGE)
             suffix = f"-{image_index + 1}" if num_images > 1 else ""
-
-            # Use custom output directory if specified
-            output_dir = getattr(args, "output_dir", None) or "output"
-
-            # Determine the output filename
-            if getattr(args, "output_filename", None):
-                base_name = args.output_filename
-            else:
-                # Sanitize prompt for use in filename
-                sanitized_prompt = sanitize_prompt_for_filename(args.prompt)
-                base_name = f"{timestamp}-{sanitized_prompt}"
-
-            output_filename = os.path.join(output_dir, f"{base_name}{suffix}.png")
+            output_filename = os.path.join(
+                output_dir, f"{base_name}{suffix}.png"
+            )
 
             os.makedirs(os.path.dirname(output_filename) or ".", exist_ok=True)
 
@@ -1373,9 +1369,8 @@ def generate_image(args):
             abs_path = os.path.abspath(output_filename)
             saved_paths.append(abs_path)
             saved_seeds.append(per_image_seed)
-            yield emit_event(GenerationStep.IMAGE_SAVED)
+            yield emit(GenerationStep.IMAGE_SAVED)
 
-        # Print full path(s) of saved image(s)
         if len(saved_paths) == 1:
             print(f"\nImage saved to: {saved_paths[0]} (seed: {saved_seeds[0]})")
         else:
@@ -1383,31 +1378,28 @@ def generate_image(args):
             for path, seed_val in zip(saved_paths, saved_seeds):
                 print(f"- {path} (seed: {seed_val})")
 
-        yield emit_event(GenerationStep.COMPLETE)
-
-        # Yield the final result so pipeline can catch it
+        yield emit(GenerationStep.COMPLETE)
         yield saved_paths
 
     except Exception as e:
-        yield emit_event(GenerationStep.ERROR)
+        yield emit(GenerationStep.ERROR)
         print(f"Error during image generation: {e}")
         raise
 
 
-def edit_image(args) -> None:
-    from PIL import Image
-
+def _get_edit_pipeline_class():
     try:
         from diffusers import QwenImageEditPlusPipeline as EditPipeline
     except ImportError:
         from diffusers import QwenImageEditPipeline as EditPipeline
+    return EditPipeline
 
-    device, torch_dtype = get_device_and_dtype()
 
-    # Check if quantization is requested
+def _load_edit_pipeline(args, device, torch_dtype):
+    EditPipeline = _get_edit_pipeline_class()
     quantization = getattr(args, "quantization", None)
+
     if quantization:
-        # Load GGUF quantized model for editing
         print(f"Loading GGUF quantized model ({quantization}) for image editing...")
         pipeline = load_gguf_pipeline(quantization, device, torch_dtype, edit_mode=True)
         if pipeline is None:
@@ -1416,62 +1408,127 @@ def edit_image(args) -> None:
             pipeline = EditPipeline.from_pretrained(
                 "Qwen/Qwen-Image-Edit-2509", torch_dtype=torch_dtype
             )
-            pipeline = pipeline.to(device)
     else:
-        # Load the standard image editing pipeline
         print("Loading Qwen-Image-Edit model for image editing...")
         pipeline = EditPipeline.from_pretrained(
             "Qwen/Qwen-Image-Edit-2509", torch_dtype=torch_dtype
         )
-        pipeline = pipeline.to(device)
 
-    pipeline.set_progress_bar_config(disable=None)
+    return pipeline.to(device)
 
-    # Apply custom LoRA if specified
-    if args.lora:
-        print(f"Loading custom LoRA: {args.lora}")
-        custom_lora_path = get_custom_lora_path(args.lora)
-        if custom_lora_path:
-            pipeline = merge_lora_from_safetensors(pipeline, custom_lora_path)
-        else:
-            print("Warning: Could not load custom LoRA, continuing without it...")
 
-    # Apply Lightning LoRA if fast or ultra-fast mode is enabled
-    if args.ultra_fast:
+def _apply_custom_lora_if_needed(pipeline, args):
+    if not getattr(args, "lora", None):
+        return pipeline
+
+    print(f"Loading custom LoRA: {args.lora}")
+    custom_lora_path = get_custom_lora_path(args.lora)
+    if custom_lora_path:
+        return merge_lora_from_safetensors(pipeline, custom_lora_path)
+
+    print("Warning: Could not load custom LoRA, continuing without it...")
+    return pipeline
+
+
+def _apply_lightning_edit_mode(pipeline, args, default_steps, default_cfg):
+    num_steps = default_steps
+    cfg_scale = default_cfg
+    lightning_filename = getattr(args, "lightning_lora_filename", None)
+
+    if getattr(args, "ultra_fast", False):
         print("Loading Lightning Edit LoRA v1.0 (4 steps) for ultra-fast editing...")
-        lora_path = get_lora_path(ultra_fast=True, edit_mode=True, lightning_lora_filename=getattr(
-            args, "lightning_lora_filename", None))
+        lora_path = get_lora_path(
+            ultra_fast=True, edit_mode=True, lightning_lora_filename=lightning_filename
+        )
         if lora_path:
-            # Use manual LoRA merging for edit pipeline
             pipeline = merge_lora_from_safetensors(pipeline, lora_path)
-            # Use fixed 4 steps for Ultra Lightning mode
             num_steps = 4
             cfg_scale = 1.0
             print(f"Ultra-fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
         else:
             print("Warning: Could not load Lightning Edit LoRA v1.0 (4 steps)")
             print("Falling back to normal editing...")
-            num_steps = args.steps
-            cfg_scale = 4.0
-    elif args.fast:
+    elif getattr(args, "fast", False):
         print("Loading Lightning Edit LoRA v1.0 for fast editing...")
-        lora_path = get_lora_path(edit_mode=True, lightning_lora_filename=getattr(
-            args, "lightning_lora_filename", None))
+        lora_path = get_lora_path(
+            edit_mode=True, lightning_lora_filename=lightning_filename
+        )
         if lora_path:
-            # Use manual LoRA merging for edit pipeline
             pipeline = merge_lora_from_safetensors(pipeline, lora_path)
-            # Use fixed 8 steps for Lightning Edit mode
             num_steps = 8
             cfg_scale = 1.0
             print(f"Fast edit mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
         else:
             print("Warning: Could not load Lightning Edit LoRA v1.0")
             print("Falling back to normal editing...")
-            num_steps = args.steps
-            cfg_scale = 4.0
-    else:
-        num_steps = args.steps
-        cfg_scale = 4.0
+
+    return pipeline, num_steps, cfg_scale
+
+
+def _load_input_images(input_paths):
+    from PIL import Image
+
+    images = []
+    for path in input_paths:
+        image = Image.open(path).convert("RGB")
+        print(f"Loaded input image: {path} ({image.size[0]}x{image.size[1]})")
+        images.append(image)
+    return images
+
+
+def _build_edit_prompt(args):
+    if not getattr(args, "batman", False):
+        return args.prompt
+
+    batman_edits = [
+        " Also add a tiny LEGO Batman minifigure photobombing somewhere unexpected.",
+        " Include a small LEGO Batman figure sneaking into the scene.",
+        " Add a miniature LEGO Batman peeking from an edge.",
+        " Put a tiny LEGO Batman minifigure doing something heroic in the background.",
+        " Add a small LEGO Batman figure photobombing with a dramatic pose.",
+        " Include a tiny LEGO Batman minifigure who looks like he's saying 'I'm Batman!'",
+        " Add a miniature LEGO Batman swinging on a tiny grappling hook.",
+        " Include a small LEGO Batman figure doing the Batusi dance.",
+        " Add a tiny LEGO Batman minifigure brooding mysteriously in a corner.",
+        " Put a small LEGO Batman photobombing like he's protecting Gotham.",
+    ]
+    batman_edit = random.choice(batman_edits)
+    print("\n🦇 BATMAN MODE ACTIVATED: LEGO Batman will photobomb this edit!")
+    return args.prompt + batman_edit
+
+
+def _resolve_output_path(args):
+    output_dir = getattr(args, "output_dir", None) or "output"
+
+    if getattr(args, "output", None):
+        output_path = args.output
+        if os.path.basename(output_path) == output_path:
+            output_path = os.path.join(output_dir, output_path)
+        return output_path
+
+    base_name = getattr(args, "output_filename", None)
+    if not base_name:
+        sanitized_prompt = sanitize_prompt_for_filename(args.prompt)
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        base_name = f"edited-{timestamp}-{sanitized_prompt}"
+
+    return os.path.join(output_dir, f"{base_name}.png")
+
+
+def edit_image(args) -> None:
+    device, torch_dtype = get_device_and_dtype()
+
+    pipeline = _load_edit_pipeline(args, device, torch_dtype)
+
+    pipeline.set_progress_bar_config(disable=None)
+
+    pipeline = _apply_custom_lora_if_needed(pipeline, args)
+
+    default_steps = args.steps
+    default_cfg = 4.0
+    pipeline, num_steps, cfg_scale = _apply_lightning_edit_mode(
+        pipeline, args, default_steps, default_cfg
+    )
 
     # Override CFG scale if provided by user
     if getattr(args, "cfg_scale", None) is not None:
@@ -1482,54 +1539,26 @@ def edit_image(args) -> None:
         except Exception:
             pass
 
-    # Load input image
     input_paths = args.input if isinstance(args.input, (list, tuple)) else [args.input]
 
-    images = []
     try:
-        for path in input_paths:
-            image = Image.open(path).convert("RGB")
-            print(f"Loaded input image: {path} ({image.size[0]}x{image.size[1]})")
-            images.append(image)
+        images = _load_input_images(input_paths)
     except Exception as e:
         print(f"Error loading input image: {e}")
         return
 
-    # Set up generation parameters
     seed = args.seed if args.seed is not None else secrets.randbits(63)
     generator = create_generator(device, seed)
 
-    # Modify prompt for Batman photobomb mode
-    edit_prompt = args.prompt
-    if args.batman:
-        import random
+    edit_prompt = _build_edit_prompt(args)
 
-        batman_edits = [
-            " Also add a tiny LEGO Batman minifigure photobombing somewhere unexpected.",
-            " Include a small LEGO Batman figure sneaking into the scene.",
-            " Add a miniature LEGO Batman peeking from an edge.",
-            " Put a tiny LEGO Batman minifigure doing something heroic in the background.",
-            " Add a small LEGO Batman figure photobombing with a dramatic pose.",
-            " Include a tiny LEGO Batman minifigure who looks like he's saying 'I'm Batman!'",
-            " Add a miniature LEGO Batman swinging on a tiny grappling hook.",
-            " Include a small LEGO Batman figure doing the Batusi dance.",
-            " Add a tiny LEGO Batman minifigure brooding mysteriously in a corner.",
-            " Put a small LEGO Batman photobombing like he's protecting Gotham.",
-        ]
-        batman_edit = random.choice(batman_edits)
-        edit_prompt = args.prompt + batman_edit
-        print("\n🦇 BATMAN MODE ACTIVATED: LEGO Batman will photobomb this edit!")
-
-    # Prepare negative prompt (allow CLI override; default to empty)
     edit_negative_prompt = (
         " " if getattr(args, "negative_prompt", None) is None else args.negative_prompt
     )
 
-    # Perform image editing
     print(f"Editing image with prompt: {edit_prompt}")
     print(f"Using {num_steps} inference steps...")
 
-    # Qwen image edit pipeline for image editing
     with torch.inference_mode():
         pipeline_inputs = images if len(images) > 1 else images[0]
         output = pipeline(
@@ -1542,31 +1571,7 @@ def edit_image(args) -> None:
         )
         edited_image = output.images[0]
 
-    # Save the edited image
-    default_output_dir = getattr(args, "output_dir", None) or "output"
-
-    # Use custom output directory if specified
-    output_directory = getattr(args, "output_dir", None) or default_output_dir
-
-    # Determine the output filename
-    if getattr(args, "output_filename", None):
-        base_name = args.output_filename
-    elif args.output:
-        # Use the provided output filename
-        output_filename = args.output
-        if os.path.basename(output_filename) == output_filename:
-            output_filename = os.path.join(output_directory, output_filename)
-    else:
-        # Sanitize prompt for use in filename
-        sanitized_prompt = sanitize_prompt_for_filename(args.prompt)
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        base_name = f"edited-{timestamp}-{sanitized_prompt}"
-        output_filename = os.path.join(output_directory, f"{base_name}.png")
-
-    # If we haven't set output_filename yet, it means we're using custom naming
-    if 'output_filename' not in locals():
-        output_filename = os.path.join(output_directory, f"{base_name}.png")
-
+    output_filename = _resolve_output_path(args)
     os.makedirs(os.path.dirname(output_filename) or ".", exist_ok=True)
 
     edited_image.save(output_filename)
