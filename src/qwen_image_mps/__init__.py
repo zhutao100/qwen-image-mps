@@ -3,6 +3,7 @@
 __version__ = "0.6.0"
 
 from .cli import (
+    GenerationStep,
     build_edit_parser,
     build_generate_parser,
     edit_image,
@@ -14,6 +15,7 @@ from .cli import (
 
 __all__ = [
     "main",
+    "GenerationStep",
     "build_generate_parser",
     "build_edit_parser",
     "generate_image",
