@@ -18,10 +18,10 @@ def get_lora_path(
         filename = lightning_lora_filename
         version = f"custom ({lightning_lora_filename})"
     elif edit_mode and ultra_fast:
-        filename = "Qwen-Image-Edit-Lightning-4steps-V1.0-bf16.safetensors"
+        filename = "Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors"
         version = "Edit v1.0 (4-steps)"
     elif edit_mode:
-        filename = "Qwen-Image-Edit-Lightning-8steps-V1.0-bf16.safetensors"
+        filename = "Qwen-Image-Edit-2509-Lightning-8steps-V1.0-bf16.safetensors"
         version = "Edit v1.0 (8-steps)"
     elif ultra_fast:
         filename = "Qwen-Image-Lightning-4steps-V2.0-bf16.safetensors"
@@ -31,26 +31,12 @@ def get_lora_path(
         version = "v2.0 (8-steps)"
 
     try:
-        cached_path = None
-        try:
-            cached_path = hf_hub_download(
-                repo_id="lightx2v/Qwen-Image-Lightning",
-                filename=filename,
-                repo_type="model",
-                local_files_only=True,
-            )
-        except Exception:
-            cached_path = None
-
         latest_path = hf_hub_download(
             repo_id="lightx2v/Qwen-Image-Lightning",
             filename=filename,
+            subfolder='Qwen-Image-Edit-2509' if edit_mode else None,
             repo_type="model",
         )
-
-        if cached_path and latest_path != cached_path:
-            pass
-
         print(f"Lightning LoRA {version} loaded from: {latest_path}")
         return latest_path
     except Exception as exc:
