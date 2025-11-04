@@ -162,9 +162,9 @@ def edit_image(args) -> None:
             image=pipeline_inputs,
             prompt=edit_prompt,
             negative_prompt=edit_negative_prompt,
+            true_cfg_scale=cfg_scale,
             num_inference_steps=num_steps,
             generator=generator,
-            guidance_scale=cfg_scale,
         )
         edited_image = output.images[0]
 
