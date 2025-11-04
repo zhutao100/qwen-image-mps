@@ -19,7 +19,7 @@ def build_generate_parser(subparsers) -> argparse.ArgumentParser:
         "--negative-prompt",
         dest="negative_prompt",
         type=str,
-        default=None,
+        default=" ",
         help=(
             "Text to discourage (negative prompt), e.g. 'blurry, watermark, text, low quality'. "
             "If omitted, an empty negative prompt is used."
@@ -164,7 +164,7 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
         "--negative-prompt",
         dest="negative_prompt",
         type=str,
-        default=None,
+        default=" ",
         help=(
             "Text to discourage in the edit (negative prompt). If omitted, an empty negative prompt is used."
         ),
