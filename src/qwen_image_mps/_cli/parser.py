@@ -99,6 +99,12 @@ def build_generate_parser(subparsers) -> argparse.ArgumentParser:
         help="Base name for the output files (without extension). If not provided, a timestamp-based name will be used.",
     )
     parser.add_argument(
+        "--dimensions",
+        type=str,
+        default=None,
+        help="Optional output size, e.g. '1920x1080', '1920,1080', or '[1920 1080]'.",
+    )
+    parser.add_argument(
         "--batman",
         action="store_true",
         help="LEGO Batman photobombs your image! 🦇",
@@ -220,6 +226,12 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
         type=str,
         default=None,
         help="Base name for the output files (without extension). If not provided, a timestamp-based name will be used.",
+    )
+    parser.add_argument(
+        "--dimensions",
+        type=str,
+        default=None,
+        help="Optional output size, e.g. '1920x1080', '1920,1080', or '[1920 1080]'.",
     )
     parser.add_argument(
         "--lora",

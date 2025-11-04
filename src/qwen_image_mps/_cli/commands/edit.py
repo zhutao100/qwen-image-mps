@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import logging
 from datetime import datetime
 
 import torch
@@ -16,6 +17,9 @@ def _get_edit_pipeline_class():
     try:
         from diffusers import QwenImageEditPlusPipeline as EditPipeline
     except ImportError:
+        logging.warning(
+            "diffusers>=0.28.0 is required for QwenImageEditPlusPipeline. Falling back to QwenImageEditPipeline."
+        )
         from diffusers import QwenImageEditPipeline as EditPipeline
     return EditPipeline
 
@@ -153,12 +157,18 @@ def edit_image(args) -> None:
 
     edit_negative_prompt = context.negative_prompt_text
 
+    if context.width is not None and context.height is not None:
+        target_width, target_height = context.width, context.height
+    else:
+        base_width, base_height = images[0].size
+        target_width, target_height = base_width, base_height
+
     print(f"Editing image with prompt: {edit_prompt}")
     print(f"Using {num_steps} inference steps...")
 
     with torch.inference_mode():
         pipeline_inputs = images if len(images) > 1 else images[0]
-        output = pipeline(
+        pipeline_kwargs = dict(
             image=pipeline_inputs,
             prompt=edit_prompt,
             negative_prompt=edit_negative_prompt,
@@ -166,6 +176,11 @@ def edit_image(args) -> None:
             num_inference_steps=num_steps,
             generator=generator,
         )
+        if target_width is not None and target_height is not None:
+            pipeline_kwargs["width"] = target_width
+            pipeline_kwargs["height"] = target_height
+
+        output = pipeline(**pipeline_kwargs)
         edited_image = output.images[0]
 
     output_filename = _resolve_output_path(context)

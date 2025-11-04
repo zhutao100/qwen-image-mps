@@ -171,7 +171,11 @@ def generate_image(args) -> Generator[GenerationStep | list[str], None, None]:
 
         negative_prompt = context.negative_prompt_text
 
-        width, height = _resolve_aspect_dimensions(context.aspect)
+        if context.width is not None and context.height is not None:
+            width, height = context.width, context.height
+        else:
+            width, height = _resolve_aspect_dimensions(context.aspect)
+
         num_images = context.num_images
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
 

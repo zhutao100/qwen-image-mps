@@ -6,6 +6,8 @@ from typing import Callable, List, Optional, Sequence
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from .dimensions import parse_dimensions
+
 DEFAULT_OUTPUT_DIR = "output"
 ALLOWED_ASPECTS: Sequence[str] = (
     "1:1",
@@ -36,6 +38,8 @@ class GenerationContext(BaseModel):
     batman: bool = False
     memory_efficient: bool = False
     event_callback: Optional[Callable[[Enum], None]] = None
+    width: Optional[int] = Field(default=None, gt=0)
+    height: Optional[int] = Field(default=None, gt=0)
 
     @field_validator("aspect")
     @classmethod
@@ -76,6 +80,14 @@ class GenerationContext(BaseModel):
 
     @classmethod
     def from_args(cls, args) -> "GenerationContext":  # pragma: no cover - simple wiring
+        width = height = None
+        dimensions_raw = getattr(args, "dimensions", None)
+        if dimensions_raw is not None:
+            try:
+                width, height = parse_dimensions(dimensions_raw)
+            except ValueError as exc:
+                raise ValueError(f"Invalid dimensions value '{dimensions_raw}': {exc}") from exc
+
         return cls(
             prompt=args.prompt,
             negative_prompt=getattr(args, "negative_prompt", None),
@@ -94,6 +106,8 @@ class GenerationContext(BaseModel):
             batman=bool(getattr(args, "batman", False)),
             memory_efficient=bool(getattr(args, "memory_efficient", False)),
             event_callback=getattr(args, "event_callback", None),
+            width=width,
+            height=height,
         )
 
 
@@ -114,6 +128,8 @@ class EditContext(BaseModel):
     output: Optional[str] = None
     batman: bool = False
     memory_efficient: bool = False
+    width: Optional[int] = Field(default=None, gt=0)
+    height: Optional[int] = Field(default=None, gt=0)
 
     @field_validator("input_paths")
     @classmethod
@@ -157,6 +173,14 @@ class EditContext(BaseModel):
         else:
             input_paths = [raw_input]
 
+        width = height = None
+        dimensions_raw = getattr(args, "dimensions", None)
+        if dimensions_raw is not None:
+            try:
+                width, height = parse_dimensions(dimensions_raw)
+            except ValueError as exc:
+                raise ValueError(f"Invalid dimensions value '{dimensions_raw}': {exc}") from exc
+
         return cls(
             input_paths=input_paths,
             prompt=args.prompt,
@@ -174,6 +198,8 @@ class EditContext(BaseModel):
             output=getattr(args, "output", None),
             batman=bool(getattr(args, "batman", False)),
             memory_efficient=bool(getattr(args, "memory_efficient", False)),
+            width=width,
+            height=height,
         )
 
     def seed_value(self) -> int:
