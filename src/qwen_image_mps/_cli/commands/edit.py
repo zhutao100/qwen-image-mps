@@ -8,7 +8,14 @@ import torch
 
 from ...core.contexts import EditContext
 from ...core.lora import get_custom_lora_path, get_lora_path, merge_lora_from_safetensors
-from ...core.pipelines import get_device_and_dtype, load_gguf_pipeline
+from ...core.pipelines import (
+    build_pretrained_load_kwargs,
+    from_pretrained_with_fallback,
+    get_device_and_dtype,
+    load_gguf_pipeline,
+    maybe_empty_mps_cache,
+    prepare_hf_loading_environment,
+)
 from ...prompts import build_edit_prompt, sanitize_prompt_for_filename
 from ...utils import create_generator
 
@@ -27,6 +34,8 @@ def _get_edit_pipeline_class():
 def _load_edit_pipeline(context: EditContext, device, torch_dtype):
     EditPipeline = _get_edit_pipeline_class()
     quantization = context.quantization
+    prepare_hf_loading_environment()
+    load_kwargs = build_pretrained_load_kwargs(torch_dtype)
 
     if quantization:
         print(f"Loading GGUF quantized model ({quantization}) for image editing...")
@@ -34,13 +43,13 @@ def _load_edit_pipeline(context: EditContext, device, torch_dtype):
         if pipeline is None:
             print("GGUF models for editing may not be available yet.")
             print("Falling back to standard edit model...")
-            pipeline = EditPipeline.from_pretrained(
-                "Qwen/Qwen-Image-Edit-2509", torch_dtype=torch_dtype
+            pipeline = from_pretrained_with_fallback(
+                EditPipeline, "Qwen/Qwen-Image-Edit-2509", load_kwargs
             )
     else:
         print("Loading Qwen-Image-Edit model for image editing...")
-        pipeline = EditPipeline.from_pretrained(
-            "Qwen/Qwen-Image-Edit-2509", torch_dtype=torch_dtype
+        pipeline = from_pretrained_with_fallback(
+            EditPipeline, "Qwen/Qwen-Image-Edit-2509", load_kwargs
         )
 
     return pipeline.to(device)
@@ -129,17 +138,20 @@ def edit_image(args) -> None:
     context = args if isinstance(args, EditContext) else EditContext.from_args(args)
     device, torch_dtype = get_device_and_dtype()
 
-    pipeline = _load_edit_pipeline(context, device, torch_dtype)
+    with torch.inference_mode():
+        pipeline = _load_edit_pipeline(context, device, torch_dtype)
 
-    pipeline.set_progress_bar_config(disable=None)
+        pipeline.set_progress_bar_config(disable=None)
 
-    pipeline = _apply_custom_lora_if_needed(pipeline, context)
+        pipeline = _apply_custom_lora_if_needed(pipeline, context)
 
-    default_steps = context.steps
-    default_cfg = 4.0
-    pipeline, num_steps, cfg_scale = _apply_lightning_edit_mode(
-        pipeline, context, default_steps, default_cfg
-    )
+        default_steps = context.steps
+        default_cfg = 4.0
+        pipeline, num_steps, cfg_scale = _apply_lightning_edit_mode(
+            pipeline, context, default_steps, default_cfg
+        )
+
+    maybe_empty_mps_cache()
 
     if context.cfg_scale is not None:
         cfg_scale = float(context.cfg_scale)

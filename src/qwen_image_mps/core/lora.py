@@ -1,8 +1,26 @@
+import os
 import re
 from pathlib import Path
 from typing import Optional
 
 import torch
+
+from .pipelines import maybe_empty_mps_cache
+
+DEFAULT_LORA_CHUNK_BYTES = 128 * 1024 * 1024
+try:
+    MAX_LORA_CHUNK_BYTES = int(
+        os.environ.get("QWEN_MAX_LORA_CHUNK_BYTES", DEFAULT_LORA_CHUNK_BYTES)
+    )
+except ValueError:
+    MAX_LORA_CHUNK_BYTES = DEFAULT_LORA_CHUNK_BYTES
+
+
+def _dtype_size_in_bytes(dtype: torch.dtype) -> int:
+    try:
+        return torch.finfo(dtype).bits // 8
+    except TypeError:
+        return torch.tensor([], dtype=dtype).element_size()
 
 
 def get_lora_path(
@@ -88,6 +106,40 @@ def get_custom_lora_path(lora_spec: str) -> Optional[str]:
         return None
 
 
+def _lora_scaling_factor(lora_down, lora_up, lora_alpha) -> float:
+    rank = lora_down.shape[0] or 1
+    return float(lora_alpha) / float(rank)
+
+
+def _chunked_add_lora_delta(param, lora_up, lora_down, scaling_factor: float):
+    target_device = param.data.device
+    target_dtype = param.data.dtype
+
+    lora_up = lora_up.to(device=target_device, dtype=target_dtype, copy=True)
+    lora_down = lora_down.to(device=target_device, dtype=target_dtype, copy=True)
+
+    out_dim = lora_up.shape[0]
+    in_dim = lora_down.shape[1]
+
+    bytes_per_elem = _dtype_size_in_bytes(target_dtype)
+
+    full_bytes = out_dim * in_dim * bytes_per_elem
+
+    if full_bytes <= MAX_LORA_CHUNK_BYTES:
+        delta = torch.matmul(lora_up, lora_down)
+        delta.mul_(scaling_factor)
+        param.data.add_(delta)
+        return
+
+    rows_per_chunk = max(1, MAX_LORA_CHUNK_BYTES // max(in_dim * bytes_per_elem, 1))
+    for start in range(0, out_dim, rows_per_chunk):
+        end = min(start + rows_per_chunk, out_dim)
+        delta_chunk = torch.matmul(lora_up[start:end], lora_down)
+        delta_chunk.mul_(scaling_factor)
+        param.data[start:end].add_(delta_chunk)
+
+
+@torch.inference_mode()
 def merge_lora_from_safetensors(pipe, lora_path: str):
     import safetensors.torch
 
@@ -157,14 +209,9 @@ def merge_lora_from_safetensors(pipe, lora_path: str):
                 lora_up = lora_state_dict[lora_b_key]
 
                 lora_alpha = lora_down.shape[0]
-                rank = lora_down.shape[0]
-                scaling_factor = lora_alpha / rank
-
-                lora_up = lora_up.float()
-                lora_down = lora_down.float()
-
-                delta_w = scaling_factor * torch.matmul(lora_up, lora_down)
-                param.data = (param.data + delta_w.to(param.device)).type_as(param.data)
+                scaling_factor = _lora_scaling_factor(lora_down, lora_up, lora_alpha)
+                _chunked_add_lora_delta(param, lora_up, lora_down, scaling_factor)
+                del lora_down, lora_up
                 merged_count += 1
     elif uses_diffusers_format:
         for name, param in transformer.named_parameters():
@@ -200,14 +247,9 @@ def merge_lora_from_safetensors(pipe, lora_path: str):
                 else:
                     lora_alpha = lora_down.shape[0]
 
-                rank = lora_down.shape[0]
-                scaling_factor = lora_alpha / rank
-
-                lora_up = lora_up.float()
-                lora_down = lora_down.float()
-
-                delta_w = scaling_factor * torch.matmul(lora_up, lora_down)
-                param.data = (param.data + delta_w.to(param.device)).type_as(param.data)
+                scaling_factor = _lora_scaling_factor(lora_down, lora_up, lora_alpha)
+                _chunked_add_lora_delta(param, lora_up, lora_down, scaling_factor)
+                del lora_down, lora_up
                 merged_count += 1
     else:
         for name, param in transformer.named_parameters():
@@ -238,15 +280,12 @@ def merge_lora_from_safetensors(pipe, lora_path: str):
                 else:
                     lora_alpha = lora_down.shape[0]
 
-                rank = lora_down.shape[0]
-                scaling_factor = lora_alpha / rank
-
-                lora_up = lora_up.float()
-                lora_down = lora_down.float()
-
-                delta_w = scaling_factor * torch.matmul(lora_up, lora_down)
-                param.data = (param.data + delta_w.to(param.device)).type_as(param.data)
+                scaling_factor = _lora_scaling_factor(lora_down, lora_up, lora_alpha)
+                _chunked_add_lora_delta(param, lora_up, lora_down, scaling_factor)
+                del lora_down, lora_up
                 merged_count += 1
 
     print(f"Merged {merged_count} LoRA weights into the model")
+    del lora_state_dict
+    maybe_empty_mps_cache()
     return pipe

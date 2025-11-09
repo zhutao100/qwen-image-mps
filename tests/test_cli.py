@@ -5,7 +5,7 @@ Integration and unit tests for the qwen-image-mps CLI.
 import os
 import sys
 import types
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 
@@ -23,8 +23,12 @@ if "torch" not in sys.modules:
     torch_stub.cuda = types.SimpleNamespace(is_available=lambda: False)
     torch_stub.bfloat16 = object()
     torch_stub.float32 = object()
+    torch_stub.dtype = object()
 
     class _DummyCtx:
+        def __call__(self, *args, **kwds):
+            return self
+            
         def __enter__(self):
             return None
 

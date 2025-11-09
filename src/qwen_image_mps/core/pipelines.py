@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 import torch
@@ -16,6 +17,46 @@ def get_device_and_dtype():
         return "cuda", torch.bfloat16
     print("Using CPU")
     return "cpu", torch.float32
+
+
+def maybe_empty_mps_cache():
+    if torch.backends.mps.is_available():
+        torch.mps.empty_cache()
+
+
+def prepare_hf_loading_environment():
+    if torch.backends.mps.is_available():
+        os.environ.setdefault("HF_HUB_ENABLE_PARALLEL_LOADING", "0")
+
+
+def build_pretrained_load_kwargs(torch_dtype):
+    return {
+        "torch_dtype": torch_dtype,
+        "use_safetensors": True,
+        "low_cpu_mem_usage": True,
+    }
+
+
+def from_pretrained_with_fallback(pipeline_cls, model_id: str, load_kwargs: dict):
+    """Load a pipeline while gracefully handling optional kwargs."""
+
+    try:
+        return pipeline_cls.from_pretrained(model_id, **load_kwargs)
+    except TypeError as exc:
+        if "low_cpu_mem_usage" in str(exc) and "low_cpu_mem_usage" in load_kwargs:
+            print(
+                "Current diffusers version does not support `low_cpu_mem_usage`; "
+                "retrying without it."
+            )
+            fallback_kwargs = {
+                k: v for k, v in load_kwargs.items() if k != "low_cpu_mem_usage"
+            }
+            return from_pretrained_with_fallback(
+                pipeline_cls,
+                model_id,
+                fallback_kwargs,
+            )
+        raise
 
 
 def get_gguf_model_path(quantization: str) -> Optional[str]:

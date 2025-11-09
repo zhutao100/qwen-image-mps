@@ -8,7 +8,14 @@ import torch
 
 from ...core.contexts import GenerationContext
 from ...core.lora import get_custom_lora_path, get_lora_path, merge_lora_from_safetensors
-from ...core.pipelines import get_device_and_dtype, load_gguf_pipeline
+from ...core.pipelines import (
+    build_pretrained_load_kwargs,
+    from_pretrained_with_fallback,
+    get_device_and_dtype,
+    load_gguf_pipeline,
+    maybe_empty_mps_cache,
+    prepare_hf_loading_environment,
+)
 from ...prompts import build_generation_prompt, sanitize_prompt_for_filename
 from ...utils import create_generator
 from ..events import GenerationStep, emit_generation_event
@@ -19,16 +26,18 @@ def _load_generation_pipeline(context: GenerationContext, device, torch_dtype):
 
     model_name = "Qwen/Qwen-Image"
     quantization = context.quantization
+    prepare_hf_loading_environment()
+    load_kwargs = build_pretrained_load_kwargs(torch_dtype)
 
     if quantization:
         pipe = load_gguf_pipeline(quantization, device, torch_dtype, edit_mode=False)
         if pipe is None:
             print("Failed to load GGUF model, falling back to standard model...")
-            pipe = DiffusionPipeline.from_pretrained(model_name, torch_dtype=torch_dtype)
+            pipe = from_pretrained_with_fallback(DiffusionPipeline, model_name, load_kwargs)
             pipe = pipe.to(device)
         return pipe, True
 
-    pipe = DiffusionPipeline.from_pretrained(model_name, torch_dtype=torch_dtype)
+    pipe = from_pretrained_with_fallback(DiffusionPipeline, model_name, load_kwargs)
     pipe = pipe.to(device)
     return pipe, False
 
@@ -147,7 +156,8 @@ def generate_image(args) -> Generator[GenerationStep | list[str], None, None]:
         device, torch_dtype = get_device_and_dtype()
 
         yield emit(GenerationStep.LOADING_MODEL)
-        pipe, using_gguf = _load_generation_pipeline(context, device, torch_dtype)
+        with torch.inference_mode():
+            pipe, using_gguf = _load_generation_pipeline(context, device, torch_dtype)
 
         yield emit(GenerationStep.MODEL_LOADED)
 
@@ -158,6 +168,7 @@ def generate_image(args) -> Generator[GenerationStep | list[str], None, None]:
         pipe, num_steps, cfg_scale = yield from _apply_lightning_generation_mode(
             pipe, context, using_gguf, emit
         )
+        maybe_empty_mps_cache()
 
         if context.cfg_scale is not None:
             cfg_scale = float(context.cfg_scale)
